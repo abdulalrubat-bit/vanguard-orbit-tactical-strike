@@ -203,6 +203,7 @@ function resize() {
   if (S.cross.x === 0) { S.cross.x = W / 2; S.cross.y = H / 2; }
   Sticks.layout();
   clampCam();
+  measureChrome();
 }
 
 /* ============================================================== the route === */
@@ -320,19 +321,20 @@ const Sticks = (() => {
   }
 
   function down(id, x, y) {
-    // The zoom rail owns the right edge; it is checked before the sticks so a
-    // thumb reaching for it does not instead deflect the gun at the sky.
-    if (Rail.hit(x, y)) { Rail.down(id, y); return; }
+    // No hit-test exclusions any more. Under the amber build the zoom rail was
+    // painted on the HUD canvas and had to claim a slice of the right edge
+    // before the sticks saw the touch — which put it in a permanent
+    // territorial dispute with the aiming thumb. The slate build makes zoom a
+    // DOM button, and a DOM button above the input surface never leaks a
+    // pointer event down into a stick at all.
     const s = (x < W * 0.5) ? L : R;
     if (s.id !== null) return;
     s.id = id; s.ox = x; s.oy = y; s.x = x; s.y = y; s.on = true; norm(s);
   }
   function move(id, x, y) {
-    if (Rail.move(id, y)) return;
     for (const s of [L, R]) if (s.id === id) { s.x = x; s.y = y; norm(s); }
   }
   function up(id) {
-    Rail.up(id);
     for (const s of [L, R]) if (s.id === id) { s.id = null; s.on = false; s.dx = s.dy = 0; }
   }
 
@@ -342,43 +344,11 @@ const Sticks = (() => {
   };
 })();
 
-/* The optical zoom rail: a vertical AR slider pinned to the right edge with
- * three detents. It snaps, because a continuous zoom on a touchscreen is a
- * zoom the player can never return to a known magnification. */
-const Rail = (() => {
-  let id = null;
-  // Sits high on the right edge, and it has to. Slung down the middle of that
-  // edge it ran straight into the heat gauge wrapped around the aim stick's
-  // resting ring on any screen under about 420 tall — and the rail wins ties,
-  // so reaching for the gun on a phone changed the magnification instead.
-  // Grows upward when GEN-2 OPTICS adds detents, rather than downward, because
-  // downward is where the aim stick's heat gauge lives.
-  const geo = () => ({
-    x: W - 30,
-    y0: H * (ZOOMS.length > 3 ? 0.14 : 0.20),
-    y1: H * 0.46
-  });
-  function hit(x, y) { const g = geo(); return x > g.x - 22 && y > g.y0 - 22 && y < g.y1 + 22; }
-  function pick(y) {
-    const g = geo(), t = (y - g.y0) / (g.y1 - g.y0), last = ZOOMS.length - 1;
-    // Detent count comes from ZOOMS, never from a literal. Hardcoded to two
-    // here and in the renderer, the two magnifications GEN-2 OPTICS buys were
-    // drawn off the end of the rail and could not be selected on it at all.
-    setZoom(Math.max(0, Math.min(last, Math.round((1 - t) * last))));
-  }
-  return {
-    hit, geo,
-    down(i, y) { id = i; pick(y); },
-    move(i, y) { if (id !== i) return false; pick(y); return true; },
-    up(i) { if (id === i) id = null; }
-  };
-})();
-
 function setZoom(i) {
   i = Math.max(0, Math.min(ZOOMS.length - 1, i));
   if (i === S.cam.zi) return;
   S.cam.zi = i; S.cam.zt = ZOOMS[i];
-  UI.flash('OPTICAL ' + ZOOMS[i].toFixed(2) + 'X');
+  UI.zoom(i);
 }
 function cycleZoom() { setZoom((S.cam.zi + 1) % ZOOMS.length); }
 
@@ -510,6 +480,8 @@ function startMission(seed, plan) {
   document.body.classList.add('playing');
   UI.stations(S.mod.stations);
   UI.weapon(0);
+  UI.buildZoom();
+  measureChrome();
   UI.flash('VANGUARD ON STATION — SECTOR ' +
     (Math.abs(seed) % 97).toString().padStart(2, '0') + '  //  ' + Career.rank().n);
 }
@@ -754,7 +726,7 @@ function shoot(wi) {
   S.heat[wi] = Math.min(1, S.heat[wi] + w.heat);
   if (S.heat[wi] >= 1) {
     S.locked[wi] = true; S.firing = false; S.spool = 0;
-    UI.flash('!! ' + w.abbr + 'MM OVERHEAT — BARREL LOCKED');
+    UI.flash(w.abbr + 'MM OVERHEAT — BARREL LOCKED');
     Audio.overheat();
   }
   S.shake = Math.min(18, S.shake + w.shake * 0.35);
@@ -906,7 +878,7 @@ function updateJamming(dt) {
   S.jam += (target - S.jam) * Math.min(1, dt * 3.5);
   const was = S.jammed;
   S.jammed = S.jam > 0.30;
-  if (S.jammed && !was) UI.flash('!! EW INTERFERENCE — AUTO TRIGGER OFFLINE');
+  if (S.jammed && !was) UI.flash('EW INTERFERENCE — AUTO TRIGGER OFFLINE');
   UI.jam(S.jammed);
 }
 
@@ -1054,6 +1026,25 @@ function drawWorld() {
   g.restore();
 
   Thermal.pass(wg, world, world.width, world.height, S.t, S.jam, S.quality);
+
+  /* Slate sinks the sensor image back a step. Its panels are opaque and its
+   * accents are saturated, so the picture underneath has to sit behind them
+   * rather than compete — the amber build could skip this because a thin amber
+   * stroke reads over anything.
+   *
+   * Both numbers are lower than the mockup's, and the reason is the Ghost.
+   * Its whole mechanic is fifteen points of luminance above the dirt it is
+   * crossing; a screen pass compresses that ratio and a black overlay scales
+   * the difference down outright. At the mockup's 0.42/0.26 the gap shrank by
+   * about a quarter, which is a prettier interface bought by making the
+   * hardest thing in the game harder for no design reason at all. */
+  wg.save();
+  wg.setTransform(1, 0, 0, 1, 0, 0);
+  wg.globalCompositeOperation = 'screen';
+  wg.fillStyle = 'rgba(18,22,34,0.32)'; wg.fillRect(0, 0, world.width, world.height);
+  wg.globalCompositeOperation = 'source-over';
+  wg.fillStyle = 'rgba(4,6,12,0.14)'; wg.fillRect(0, 0, world.width, world.height);
+  wg.restore();
 }
 
 /* The ground element. Three vehicles on one polyline, each a warm hull with a
@@ -1078,265 +1069,315 @@ function drawConvoy(g) {
 
 /* ------------------------------------------------------------------ HUD --- */
 
+/* TACTICAL SLATE. Picked over three other systems in lab/ — see
+ * lab/README.md for what each one argued and what each one cost.
+ *
+ * The split: anything that has to FOLLOW something in the world is drawn here
+ * on canvas (threat chips, convoy marks, the reticle, inbound shells, the
+ * sticks). Anything that lives at a fixed place is a DOM element, styled in
+ * index.html, because DOM gives crisp text, real touch targets and a layout
+ * engine that already knows about safe-area insets.
+ *
+ * That split is also what makes the collision fix below possible.
+ */
+
+const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+
+const THREAT = {
+  ghost:     { label: 'INF',   col: '#ff9d3c' },
+  technical: { label: 'FAST',  col: '#ffd166' },
+  phalanx:   { label: 'HEAVY', col: '#ff5a5a' },
+  jammer:    { label: 'EW',    col: '#c08cff' }
+};
+const PANEL = 'rgba(14,17,24,.90)';
+
+/* ---------------------------------------------------- reserved zones --- */
+
+/* The fix for the top-centre pile-up.
+ *
+ * Under the amber build a hostile high on the screen put its bracket and class
+ * label straight through the phase label, the integrity bar and the inbound
+ * countdown — because the furniture was at fixed coordinates and the brackets
+ * were at world coordinates, and neither knew the other existed.
+ *
+ * Rather than hand-tuning margins for the one case that was noticed, the
+ * chrome now MEASURES ITSELF. Every fixed panel reports its own rectangle, and
+ * anything canvas-drawn that carries a label checks against that list before
+ * it draws: the chip flips below its contact, and if that is blocked too it is
+ * dropped and only the threat arc remains. It generalises for free to the
+ * bottom bar, the fire button and the zoom list, and it cannot drift out of
+ * date when a panel is restyled, because the panel is the source of truth.
+ */
+const CHROME_IDS = ['convoyCard', 'objPill', 'topRight', 'zoomList',
+                    'bottomBar', 'btnTrigger', 'jamBadge'];
+let RESERVED = [];
+
+function measureChrome() {
+  RESERVED = [];
+  if (!document.body.classList.contains('playing')) return;
+  for (const id of CHROME_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (id === 'jamBadge' && !el.classList.contains('on')) continue;
+    // Visibility is decided by the measured rectangle, NOT by offsetParent.
+    // offsetParent is null for every position:fixed element by spec, and all
+    // of this chrome is fixed — testing it skipped the entire list and the
+    // reserved set came back empty, which looked exactly like a working
+    // collision system right up until a chip landed on the objective pill.
+    // A display:none element (the collapsed zoom stack) reports 0x0 and is
+    // filtered by the size check below instead.
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    RESERVED.push({ x: r.left - 6, y: r.top - 6, w: r.width + 12, h: r.height + 12 });
+  }
+}
+
+/* Labels placed so far THIS frame. Chrome is not the only thing a label can
+ * land on — in a cluster it lands on the last label, which is how the convoy's
+ * own ANVIL tag ended up underneath a hostile's chip. Cleared every frame and
+ * filled in priority order: friendlies first, then inbound shells, then threat
+ * chips, so the least important label is the one that has to move. */
+let TAKEN = [];
+
+const overlaps = (x, y, w, h, r) =>
+  x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y;
+
+function blockedByChrome(x, y, w, h) {
+  if (x < 4 || y < 4 || x + w > W - 4 || y + h > H - 4) return true;
+  for (const r of RESERVED) if (overlaps(x, y, w, h, r)) return true;
+  for (const r of TAKEN) if (overlaps(x, y, w, h, r)) return true;
+  return false;
+}
+
+/* Where a label can go, in order of preference: above the contact, below it,
+ * then out to either side. Only when all four are covered is the label
+ * dropped — and the threat arc still draws, so a contact is never invisible,
+ * it just loses the word. Above-or-nothing dropped half the labels in a
+ * cluttered corner; four candidates drops almost none.
+ *
+ * CLAIM, not place: a successful call records the rectangle in TAKEN so the
+ * next label this frame has to route around it. That side effect is the whole
+ * point, and it is in the name because a probe that calls this twice for the
+ * same label gets a different answer the second time. */
+function claimLabel(x, y, r, w, h) {
+  const cands = [
+    [x - w / 2, y - r - 20],          // above
+    [x - w / 2, y + r + 6],           // below
+    [x - r - 8 - w, y - h / 2],       // left
+    [x + r + 8, y - h / 2]            // right
+  ];
+  for (const [cx, cy] of cands) if (!blockedByChrome(cx, cy, w, h)) {
+    TAKEN.push({ x: cx - 2, y: cy - 2, w: w + 4, h: h + 4 });
+    return { x: cx, y: cy };
+  }
+  return null;
+}
+
+function rrect(g, x, y, w, h, r, fill, stroke) {
+  g.beginPath();
+  if (g.roundRect) g.roundRect(x, y, w, h, r);
+  else g.rect(x, y, w, h);
+  if (fill) { g.fillStyle = fill; g.fill(); }
+  if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1.2; g.stroke(); }
+}
+
+/* ------------------------------------------------------------- the pass --- */
+
 function drawHUD() {
   const g = hg;
   g.setTransform(DPR, 0, 0, DPR, 0, 0);
   g.clearRect(0, 0, W, H);
 
-  // Under interference the whole AR layer skews and drops lines. It is drawn
-  // once into its own canvas, so the glitch is a transform on the layer rather
-  // than a special case inside twelve draw calls.
-  const jitter = S.jammed ? (Math.random() - 0.5) * 6 * S.jam : 0;
+  // Interference nudges the world-tracking layer only. Slate is not simulated
+  // hardware, so it does not pretend its own panels are being received over a
+  // datalink — the jam badge says what is happening instead.
+  TAKEN.length = 0;
+
+  const jitter = S.jammed ? (Math.random() - 0.5) * 5 * S.jam : 0;
   g.save();
   if (jitter) g.translate(jitter, 0);
-
+  // Priority order. A shell with nine hundred milliseconds left matters more
+  // than knowing the thing under it is infantry, so inbound claims its space
+  // before the chips do.
   drawFriendlyMarks(g);
-  drawTargetBrackets(g);
   drawInbound(g);
-  drawReticle(g);
-  drawSticks(g);
-  drawRail(g);
-  drawOrbitRing(g);
-
+  drawThreatChips(g);
   g.restore();
 
-  if (S.jammed && Math.random() < 0.5) {
-    g.fillStyle = 'rgba(255,176,30,0.10)';
-    const y = Math.random() * H;
-    g.fillRect(0, y, W, 1 + Math.random() * 3);
-  }
+  drawReticle(g);
+  drawSticks(g);
+
+  UI.tick();
 }
 
+/* Green triangles, not diamonds: a filled shape survives being nine pixels
+ * across on a busy street in a way an outline does not. */
 function drawFriendlyMarks(g) {
   const c = S.convoy;
+  g.font = '700 10px ' + SANS;
   for (let i = 0; i < c.units.length; i++) {
     const p = atDist(S.sector.line, Math.max(0, c.d + c.units[i].off));
     const x = toScreenX(p.x), y = toScreenY(p.y);
     if (x < -40 || y < -40 || x > W + 40 || y > H + 40) continue;
-    const r = 15 * Math.min(1.6, S.cam.z);
-    g.strokeStyle = AMBER; g.lineWidth = 1.6;
+    const r = 10 * Math.min(1.5, S.cam.z);
+    g.fillStyle = '#68e39b';
     g.beginPath();
-    g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath();
-    g.stroke();
+    g.moveTo(x, y - r); g.lineTo(x + r * 0.82, y + r * 0.64);
+    g.lineTo(x - r * 0.82, y + r * 0.64); g.closePath(); g.fill();
     if (i === 0) {
-      g.fillStyle = AMBER;
-      g.font = '700 10px ui-monospace,Menlo,Consolas,monospace';
-      g.fillText('ANVIL', x + r + 5, y + 3);
+      const tw = g.measureText('ANVIL').width + 14;
+      const at = claimLabel(x, y, r, tw, 15);
+      if (at) {
+        rrect(g, at.x, at.y, tw, 15, 7, PANEL, 'rgba(104,227,155,.8)');
+        g.fillStyle = '#68e39b'; g.textAlign = 'center';
+        g.fillText('ANVIL', at.x + tw / 2, at.y + 11); g.textAlign = 'left';
+      }
     }
   }
-  // Off-window arrow. Losing the convoy off the edge of the sensor is the
-  // most common way a player gets lost, and one chevron fixes it.
+  // Off-window chevron. Losing the convoy off the edge of the sensor is the
+  // most common way a player gets lost, and one arrow fixes it.
   const lead = atDist(S.sector.line, c.d);
-  const lx = toScreenX(lead.x), ly = toScreenY(lead.y);
-  if (lx < 0 || ly < 0 || lx > W || ly > H) {
-    const a = Math.atan2(ly - H / 2, lx - W / 2);
-    const rr = Math.min(W, H) * 0.36;
-    const ax = W / 2 + Math.cos(a) * rr, ay = H / 2 + Math.sin(a) * rr;
-    g.save(); g.translate(ax, ay); g.rotate(a);
-    g.fillStyle = AMBER;
-    g.beginPath(); g.moveTo(13, 0); g.lineTo(-7, -8); g.lineTo(-7, 8); g.closePath(); g.fill();
+  const lx = toScreenX(lead.x), ly2 = toScreenY(lead.y);
+  if (lx < 0 || ly2 < 0 || lx > W || ly2 > H) {
+    const a = Math.atan2(ly2 - H / 2, lx - W / 2);
+    const rr = Math.min(W, H) * 0.34;
+    g.save();
+    g.translate(W / 2 + Math.cos(a) * rr, H / 2 + Math.sin(a) * rr);
+    g.rotate(a);
+    g.fillStyle = '#68e39b';
+    g.beginPath(); g.moveTo(14, 0); g.lineTo(-8, -9); g.lineTo(-8, 9); g.closePath(); g.fill();
     g.restore();
   }
 }
 
-/* Orange wireframe brackets with a scanline sweeping them, and an occasional
- * one-frame horizontal displacement. The glitch is not decoration: it is the
- * cue that a tag is a COMPUTED thing which can be wrong, and it gets stronger
- * under jamming for exactly that reason. */
-function drawTargetBrackets(g) {
-  g.font = '700 9px ui-monospace,Menlo,Consolas,monospace';
+/* A chip, not a bracket. Four brackets and a class name per contact is how the
+ * amber build ended up with nine labelled boxes fighting over the same corner
+ * of a phone screen; a colour-coded pill says what it is in a third of the ink
+ * and reads at a glance, at the honest cost of saying it less precisely. */
+function drawThreatChips(g) {
+  g.font = '700 9px ' + SANS;
   for (const e of S.hostiles) {
     if (e.tag < 0.05) continue;
-    const k = Hostiles.KINDS[e.kind];
+    const k = Hostiles.KINDS[e.kind], th = THREAT[e.kind];
     const x = toScreenX(e.x), y = toScreenY(e.y);
-    const r = Math.max(13, (k.r + 6) * S.cam.z);
-    const gl = (S.jammed && Math.random() < 0.25) ? (Math.random() - 0.5) * 10 : 0;
+    const r = Math.max(12, (k.r + 5) * S.cam.z);
     g.save();
     g.globalAlpha = e.tag;
-    g.translate(x + gl, y);
-    g.strokeStyle = AMBER; g.lineWidth = 1.5;
-    const c = r * 0.45;
-    for (let q = 0; q < 4; q++) {
-      const sx = q & 1 ? 1 : -1, sy = q & 2 ? 1 : -1;
-      g.beginPath();
-      g.moveTo(sx * r, sy * r - sy * c); g.lineTo(sx * r, sy * r);
-      g.lineTo(sx * r - sx * c, sy * r);
-      g.stroke();
-    }
-    // The sweep.
-    const sweep = ((S.t * 0.9 + e.x * 0.01) % 1) * 2 - 1;
-    g.strokeStyle = AMBER_F + '0.55)';
-    g.lineWidth = 1;
-    g.beginPath(); g.moveTo(-r, sweep * r); g.lineTo(r, sweep * r); g.stroke();
 
-    // Health, as a bar under the box, only once it has been shot.
-    if (e.hp < e.max) {
-      g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(-r, r + 4, r * 2, 3);
-      g.fillStyle = AMBER; g.fillRect(-r, r + 4, r * 2 * (e.hp / e.max), 3);
+    // The arc is the health bar and the bracket at once: it opens clockwise
+    // from the contact's left and shortens as the thing is chewed down.
+    g.strokeStyle = th.col; g.lineWidth = 2;
+    g.beginPath(); g.arc(x, y, r, -0.55, -0.55 + Math.PI * 1.75 * (e.hp / e.max)); g.stroke();
+    if (e.hitT > 0) {
+      g.strokeStyle = 'rgba(255,255,255,' + e.hitT + ')'; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(x, y, r + 3, 0, 7); g.stroke();
     }
-    if (S.cam.z > 1.4 || k.arc || e.kind === 'jammer') {
-      g.fillStyle = AMBER;
-      g.fillText(k.tag, -r, -r - 5);
+
+    const tw = g.measureText(th.label).width + 16;
+    const at = claimLabel(x, y, r, tw, 16);
+    if (at) {
+      rrect(g, at.x, at.y, tw, 16, 8, PANEL, th.col);
+      g.fillStyle = th.col; g.textAlign = 'center';
+      g.fillText(th.label, at.x + tw / 2, at.y + 11.5); g.textAlign = 'left';
     }
     g.restore();
   }
 }
 
 function drawInbound(g) {
+  g.font = '700 10px ' + SANS;
   for (const r of S.rounds) {
     const x = toScreenX(r.x), y = toScreenY(r.y);
     const p = r.t / r.tof;
-    const rad = 14 + (1 - p) * 46 * Math.min(1.5, S.cam.z);
+    const rad = 16 + (1 - p) * 40 * Math.min(1.5, S.cam.z);
     g.save();
-    g.strokeStyle = AMBER_F + (0.35 + p * 0.5) + ')';
-    g.lineWidth = 1.4;
-    g.setLineDash([5, 5]); g.lineDashOffset = -S.t * 26;
+    g.strokeStyle = 'rgba(255,214,102,' + (0.45 + p * 0.5) + ')';
+    g.lineWidth = 2;
+    g.setLineDash([6, 6]); g.lineDashOffset = -S.t * 26;
     g.beginPath(); g.arc(x, y, rad, 0, 7); g.stroke();
     g.setLineDash([]);
-    g.fillStyle = AMBER;
-    g.font = '700 9px ui-monospace,Menlo,Consolas,monospace';
-    g.fillText((r.tof - r.t).toFixed(1) + 'S', x + rad + 4, y - 3);
+    const label = (r.tof - r.t).toFixed(1) + 's';
+    const tw = g.measureText(label).width + 16;
+    const at = claimLabel(x, y, rad, tw, 17);
+    if (at) {
+      rrect(g, at.x, at.y, tw, 17, 8, PANEL, '#ffd166');
+      g.fillStyle = '#ffd166'; g.textAlign = 'center';
+      g.fillText(label, at.x + tw / 2, at.y + 12); g.textAlign = 'left';
+    }
     g.restore();
   }
 }
 
+/* Soft ring and a dot. Nothing spins — the amber reticle's rotating spokes
+ * were a firing indicator, and slate has a heat bar doing that job in a place
+ * the eye can read without leaving the target. */
 function drawReticle(g) {
   const x = S.cross.x, y = S.cross.y;
   const w = S.wfx[S.weapon];
   const hot = S.locked[S.weapon];
+  const col = hot ? '#ff5a5a' : '#ff9d3c';
   g.save();
-  g.strokeStyle = hot ? '#ff3b2f' : AMBER;
-  g.fillStyle = g.strokeStyle;
-  g.lineWidth = 1.6;
 
-  if (w.id === 'm25') {
-    g.beginPath(); g.arc(x, y, 13, 0, 7); g.stroke();
-    for (let i = 0; i < 4; i++) {
-      const a = i * Math.PI / 2 + (S.firing ? S.t * 7 : 0);
-      g.beginPath();
-      g.moveTo(x + Math.cos(a) * 17, y + Math.sin(a) * 17);
-      g.lineTo(x + Math.cos(a) * 26, y + Math.sin(a) * 26);
-      g.stroke();
-    }
-    g.fillRect(x - 1, y - 1, 2, 2);
-  } else if (w.id === 'm40') {
-    g.strokeRect(x - 15, y - 15, 30, 30);
-    g.beginPath();
-    g.moveTo(x - 26, y); g.lineTo(x - 17, y); g.moveTo(x + 17, y); g.lineTo(x + 26, y);
-    g.moveTo(x, y - 26); g.lineTo(x, y - 17); g.moveTo(x, y + 17); g.lineTo(x, y + 26);
-    g.stroke();
-  } else {
-    // The 105 shows the radius it will actually clear, in screen pixels at the
-    // current magnification. Guessing a blast radius is not a skill.
-    g.setLineDash([7, 6]); g.lineDashOffset = -S.t * 18;
+  if (w.splash) {
+    // The 105 and the 40 show the radius they will actually clear, in screen
+    // pixels at the current magnification. Guessing a blast radius is not a
+    // skill worth asking for.
+    g.strokeStyle = hot ? 'rgba(255,90,90,.4)' : 'rgba(255,157,60,.4)';
+    g.lineWidth = 1.5;
+    g.setLineDash([6, 8]); g.lineDashOffset = -S.t * 16;
     g.beginPath(); g.arc(x, y, w.splash * S.cam.z, 0, 7); g.stroke();
     g.setLineDash([]);
-    g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke();
-    g.beginPath(); g.moveTo(x - 20, y); g.lineTo(x + 20, y);
-    g.moveTo(x, y - 20); g.lineTo(x, y + 20); g.stroke();
   }
+
+  g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2;
+  g.beginPath(); g.arc(x, y, 19, 0, 7); g.stroke();
+  g.strokeStyle = col; g.lineWidth = 1.5;
+  g.setLineDash([4, 8]); g.lineDashOffset = S.t * 10;
+  g.beginPath(); g.arc(x, y, 29, 0, 7); g.stroke();
+  g.setLineDash([]);
+  g.fillStyle = col;
+  g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill();
+
   if (hot) {
-    g.font = '700 10px ui-monospace,Menlo,Consolas,monospace';
-    g.fillText('OVERHEAT', x + 30, y - 12);
+    g.font = '700 10px ' + SANS; g.textAlign = 'center';
+    g.fillStyle = '#ff5a5a';
+    g.fillText('OVERHEAT', x, y - 36); g.textAlign = 'left';
   }
   g.restore();
 }
 
-/* The right ring carries the heat gauge, because heat is a property of the
- * trigger and the trigger is that thumb. Segmented rather than continuous: a
- * smooth arc tells you how hot you are, and segments tell you how many more
- * bursts you have, which is the question actually being asked. */
+/* Translucent pads rather than rings. They carry no readout at all now — heat
+ * moved to the bottom bar — so they can afford to be quiet, and a quiet
+ * control is one less thing competing with the sensor image. */
 function drawSticks(g) {
   const L = Sticks.L, R = Sticks.R;
-  const lp = L.on ? { x: L.ox, y: L.oy } : { x: 108, y: H - 108 };
-  const rp = R.on ? { x: R.ox, y: R.oy } : { x: W - 108, y: H - 108 };
+  const lp = L.on ? { x: L.ox, y: L.oy } : { x: 96, y: H - 96 };
+  const rp = R.on ? { x: R.ox, y: R.oy } : { x: W - 210, y: H - 96 };
 
+  for (const [p, st, live] of [[lp, L, L.on], [rp, R, R.on]]) {
+    g.save();
+    g.globalAlpha = live ? 1 : 0.38;
+    g.fillStyle = 'rgba(255,255,255,.06)';
+    g.beginPath(); g.arc(p.x, p.y, STICK_R, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(p.x, p.y, STICK_R, 0, 7); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.16)';
+    g.beginPath(); g.arc(p.x + st.dx * STICK_R, p.y + st.dy * STICK_R, 21, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(p.x + st.dx * STICK_R, p.y + st.dy * STICK_R, 21, 0, 7); g.stroke();
+    g.restore();
+  }
+
+  // The activation radius on the aim stick: the boundary between aiming and
+  // firing has to be visible or the player learns it by accident.
   g.save();
-  g.globalAlpha = L.on ? 0.95 : 0.35;
-  ring(g, lp.x, lp.y, STICK_R, AMBER, 1.4);
-  g.fillStyle = AMBER_F + '0.20)';
-  g.beginPath(); g.arc(lp.x + L.dx * STICK_R, lp.y + L.dy * STICK_R, 19, 0, 7); g.fill();
-  ring(g, lp.x + L.dx * STICK_R, lp.y + L.dy * STICK_R, 19, AMBER, 1.6);
-  g.fillStyle = AMBER; g.font = '700 9px ui-monospace,Menlo,Consolas,monospace';
-  g.textAlign = 'center'; g.fillText('PAN', lp.x, lp.y + STICK_R + 16); g.textAlign = 'left';
+  g.globalAlpha = R.on ? 0.9 : 0.3;
+  g.strokeStyle = S.jammed ? '#ff5a5a' : 'rgba(255,157,60,.8)';
+  g.lineWidth = 1.5;
+  g.setLineDash([4, 5]);
+  g.beginPath(); g.arc(rp.x, rp.y, STICK_R * TRIGGER_R, 0, 7); g.stroke();
   g.restore();
-
-  g.save();
-  g.globalAlpha = R.on ? 0.95 : 0.38;
-  ring(g, rp.x, rp.y, STICK_R, AMBER, 1.4);
-  // Activation radius, so the boundary between aiming and firing is visible.
-  g.setLineDash([3, 4]);
-  ring(g, rp.x, rp.y, STICK_R * TRIGGER_R, S.jammed ? '#ff3b2f' : AMBER_D, 1.2);
   g.setLineDash([]);
-  g.fillStyle = AMBER_F + '0.20)';
-  g.beginPath(); g.arc(rp.x + R.dx * STICK_R, rp.y + R.dy * STICK_R, 19, 0, 7); g.fill();
-  ring(g, rp.x + R.dx * STICK_R, rp.y + R.dy * STICK_R, 19, AMBER, 1.6);
-  g.restore();
-
-  // Heat, wrapped around the right ring: 18 segments, filling clockwise from
-  // the top, going red and flashing on lockout.
-  const heat = S.heat[S.weapon], locked = S.locked[S.weapon];
-  const segs = 18, r0 = STICK_R + 9, r1 = STICK_R + 17;
-  const flash = locked && (S.t * 7 | 0) % 2 === 0;
-  for (let i = 0; i < segs; i++) {
-    const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2 + 0.035;
-    const a1 = -Math.PI / 2 + ((i + 1) / segs) * Math.PI * 2 - 0.035;
-    const on = (i + 1) / segs <= heat + 1e-6;
-    g.beginPath();
-    g.arc(rp.x, rp.y, r0, a0, a1);
-    g.arc(rp.x, rp.y, r1, a1, a0, true);
-    g.closePath();
-    g.fillStyle = on
-      ? (locked ? (flash ? '#ff6a4a' : '#ff3b2f') : (i / segs > 0.72 ? '#ff7a2f' : AMBER))
-      : 'rgba(255,176,30,0.13)';
-    g.fill();
-  }
-}
-
-function ring(g, x, y, r, col, lw) {
-  g.strokeStyle = col; g.lineWidth = lw;
-  g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
-}
-
-function drawRail(g) {
-  const geo = Rail.geo();
-  g.save();
-  g.strokeStyle = AMBER_F + '0.45)'; g.lineWidth = 1.4;
-  g.beginPath(); g.moveTo(geo.x, geo.y0); g.lineTo(geo.x, geo.y1); g.stroke();
-  g.font = '700 9px ui-monospace,Menlo,Consolas,monospace';
-  g.textAlign = 'right';
-  const last = Math.max(1, ZOOMS.length - 1);
-  for (let i = 0; i < ZOOMS.length; i++) {
-    const y = geo.y1 - (i / last) * (geo.y1 - geo.y0);
-    const on = i === S.cam.zi;
-    g.strokeStyle = on ? AMBER : AMBER_F + '0.5)';
-    g.lineWidth = on ? 2.4 : 1.2;
-    g.beginPath(); g.moveTo(geo.x - (on ? 13 : 8), y); g.lineTo(geo.x + (on ? 13 : 8), y); g.stroke();
-    g.fillStyle = on ? AMBER : AMBER_F + '0.45)';
-    g.fillText(ZOOMS[i].toFixed(2) + 'X', geo.x - 17, y + 3);
-  }
-  g.textAlign = 'left';
-  g.restore();
-}
-
-/* Orbital trajectory ring. It is telemetry, not decoration — the marker's
- * position is the aircraft's place in its loiter, and the outer arc is how far
- * along the route the convoy has come. Tucked hard into the corner above the
- * zoom rail: anywhere lower and it lands on the rail's top label. */
-function drawOrbitRing(g) {
-  const cx = W - 46, cy = 44, r = 20;
-  g.save();
-  g.strokeStyle = AMBER_F + '0.35)'; g.lineWidth = 1.2;
-  g.beginPath(); g.ellipse(cx, cy, r, r * 0.42, 0, 0, 7); g.stroke();
-  g.beginPath(); g.ellipse(cx, cy, r * 0.42, r, 0, 0, 7); g.stroke();
-  const a = S.t * 0.42;
-  const mx = cx + Math.cos(a) * r, my = cy + Math.sin(a) * r * 0.42;
-  g.fillStyle = AMBER;
-  g.beginPath(); g.arc(mx, my, 3.2, 0, 7); g.fill();
-  const prog = S.convoy ? S.convoy.d / S.sector.line.total : 0;
-  g.strokeStyle = AMBER; g.lineWidth = 2.4;
-  g.beginPath(); g.arc(cx, cy, r + 7, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); g.stroke();
-  g.restore();
 }
 
 /* ================================================================= audio === */
@@ -1423,24 +1464,89 @@ const UI = (() => {
     term('> ' + msg);
   }
 
+  // Only write to the DOM when the value actually changed. These are called
+  // from the frame loop, and a text node rewritten sixty times a second is
+  // sixty style recalculations nobody asked for.
+  const setText = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+
   function integrity(hp) {
     const pct = Math.max(0, hp) / CONVOY_HP;
-    $('intBar').style.width = (pct * 100).toFixed(1) + '%';
-    $('intVal').textContent = Math.ceil(hp).toString().padStart(3, '0');
-    $('intWrap').classList.toggle('crit', pct < 0.3);
+    // scaleX, not width: the integrity bar moves on almost every frame of a
+    // bad wave and a width change relayouts the whole convoy card each time.
+    $('intBar').style.transform = 'scaleX(' + pct.toFixed(4) + ')';
+    setText($('intVal'), Math.ceil(hp) + '%');
+    $('convoyCard').classList.toggle('crit', pct < 0.3);
   }
 
   function wave(n, label) {
     const tot = S.waves ? S.waves.length : 8;
-    $('waveN').textContent = 'PHASE ' + Math.min(n, tot) + '/' + tot;
-    $('waveL').textContent = label;
+    setText($('waveN'), 'PHASE ' + Math.min(n, tot) + ' OF ' + tot);
+    setText($('waveL'), label);
+    measureChrome();            // the objective pill just changed width
   }
 
   function weapon(i) {
     [...document.querySelectorAll('.wep')].forEach((b, k) => b.classList.toggle('on', k === i));
   }
 
-  function jam(v) { $('jamBadge').classList.toggle('on', v); }
+  function jam(v) {
+    const el = $('jamBadge');
+    if (el.classList.contains('on') === v) return;
+    el.classList.toggle('on', v);
+    measureChrome();
+  }
+
+  /* The zoom control. One pill showing the current magnification, expanding
+   * into the full stack on tap. A permanent stack of five detents — which
+   * GEN-2 OPTICS buys — is two hundred pixels of the right edge, and the right
+   * edge is where the aiming thumb lives. */
+  function buildZoom() {
+    const list = $('zoomList');
+    list.innerHTML = '';
+    ZOOMS.forEach((z, i) => {
+      const b = document.createElement('button');
+      b.textContent = z.toFixed(2) + '\u00D7';
+      b.dataset.i = i;
+      b.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        Audio.wake(); setZoom(i); closeZoom();
+      });
+      list.appendChild(b);
+    });
+    zoom(S.cam.zi);
+  }
+  function zoom(i) {
+    setText($('zoomBtn'), ZOOMS[i].toFixed(2) + '\u00D7');
+    [...$('zoomList').children].forEach((b, k) => b.classList.toggle('on', k === i));
+  }
+  function toggleZoom() {
+    $('zoomWrap').classList.toggle('open');
+    measureChrome();
+  }
+  function closeZoom() {
+    if (!$('zoomWrap').classList.contains('open')) return;
+    $('zoomWrap').classList.remove('open');
+    measureChrome();
+  }
+
+  /* Per-frame chrome. Heat and route are transforms on a composited layer, so
+   * they are free to write every frame; the hostile count is text, so it is
+   * guarded. */
+  let lastHost = -1;
+  function tick() {
+    const h = S.heat[S.weapon];
+    $('heatFill').style.transform = 'scaleX(' + h.toFixed(3) + ')';
+    const hw = $('heatWrap');
+    hw.classList.toggle('hot', h > 0.72 && !S.locked[S.weapon]);
+    hw.classList.toggle('locked', S.locked[S.weapon]);
+    $('routeFill').style.transform =
+      'scaleX(' + (S.convoy.d / S.sector.line.total).toFixed(4) + ')';
+    const n = S.hostiles.length + S.queue.length;
+    if (n !== lastHost) {
+      lastHost = n;
+      setText($('hostN'), n ? n + ' HOSTILE' : 'SECTOR CLEAR');
+    }
+  }
 
   /* What the sortie was worth. Integrity dominates on purpose — it is the
    * only term the mission was ever about, and a wasteful run that hands back a
@@ -1583,7 +1689,8 @@ const UI = (() => {
   const isPaused = () => paused;
 
   return { flash, integrity, wave, weapon, jam, result, togglePause, isPaused, term,
-           hub, stations, openReq, closeReq, payout, $ };
+           hub, stations, openReq, closeReq, payout, tick, zoom, buildZoom,
+           toggleZoom, closeZoom, $ };
 })();
 
 /* ================================================================== loop === */
@@ -1687,6 +1794,11 @@ function wireButtons() {
 
   [...document.querySelectorAll('.wep')].forEach((b, i) => tap(b, () => selectWeapon(i)));
   tap($('btnRecenter'), recenter);
+  tap($('zoomBtn'), () => UI.toggleZoom());
+  // Any touch on the sensor image closes the zoom stack. An expanded menu that
+  // needs a second deliberate tap to dismiss is an expanded menu sitting on
+  // top of the fight.
+  document.getElementById('surface').addEventListener('pointerdown', () => UI.closeZoom());
   tap($('btnPause'), () => UI.togglePause());
   tap($('btnResume'), () => UI.togglePause());
   tap($('btnAbort'), () => {

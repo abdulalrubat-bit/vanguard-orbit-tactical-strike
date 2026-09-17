@@ -14,7 +14,7 @@ nothing leaving the device. Saves one career file and one audio toggle to
 `localStorage` and nothing else.
 
 ```
-index.html     shell, HUD, overlays, all CSS
+index.html     shell, the slate HUD chrome, overlays, all CSS
 career.js      the ladder: ranks, rungs, the save file, the roster gate
 sector.js      the city: road grid, blocks, buildings, route, walkability
 hostiles.js    the four hostiles — stats and thermal signatures
@@ -22,6 +22,7 @@ thermal.js     the sensor grade: grain, scanlines, tear, vignette
 game.js        the game — camera, sticks, gunnery, waves, convoy
 sw.js          offline cache — generated, run tools/stamp-sw.py
 tools/         the service-worker stamper and the balance harness
+lab/           four candidate interfaces over one frame — not shipped
 ```
 
 There are no assets. No images, no fonts, no audio files, no `assets/`
@@ -31,6 +32,58 @@ shipped game is about 210KB and two thirds of that is three PNG icons.
 
 Open `index.html` over http, or from `file://` — the service worker is skipped
 there on purpose, so local dev and a WebView build both work.
+
+## The interface is a game, not a cockpit
+
+`lab/` holds four complete interface systems over the same frame of the same
+sector — the original amber FLIR build, an NVG phosphor tube, a mil-spec
+targeting-pod layout, and TACTICAL SLATE. Slate won, and it is what ships.
+
+The rule that survived the comparison: this is a game interface, not simulated
+hardware. Solid panels with soft corners, threat summarised into colour-coded
+chips rather than enumerated into tracks, and the one number read mid-burst —
+heat — sitting directly above the guns where the eye already is rather than
+wrapped around a thumb that is busy.
+
+The panels are opaque, which is the trade. They are therefore few, pushed hard
+into the corners, and the middle of the sector is left completely clear.
+
+The split is: anything that has to FOLLOW something in the world is drawn on
+canvas (threat chips, convoy marks, the reticle, inbound shells, the sticks);
+anything at a fixed place is DOM, because DOM gives crisp text, real touch
+targets and a layout engine that already knows about safe-area insets.
+
+## The collision fix
+
+The amber build had a bug the lab exposed on its first run: a hostile high on
+the screen put its bracket and class label straight through the phase label,
+the integrity bar and the inbound-shell countdown at once. The furniture was at
+fixed coordinates, the brackets were at world coordinates, and neither knew the
+other existed.
+
+Rather than hand-tune a margin for the one case somebody noticed, **the chrome
+measures itself.** Every fixed panel reports its own rectangle each time the
+layout changes, and any canvas-drawn label claims a free slot before it draws —
+above its contact, or below, or to either side, and if all four are covered it
+is dropped and only the threat arc remains. A contact is therefore never
+invisible; it can only lose its word.
+
+It generalises for free to the bottom bar, the fire button and the expanded
+zoom stack, it also routes labels around *each other* within a frame, and it
+cannot drift out of date when a panel is restyled — because the panel is the
+source of truth.
+
+Two things that look like details and are not:
+
+- Visibility is decided by the measured rectangle, **never** by `offsetParent`.
+  `offsetParent` is `null` for every `position: fixed` element by spec, and all
+  of this chrome is fixed — testing it skipped the entire list and returned an
+  empty reserved set, which looks exactly like a working collision system right
+  up until a chip lands on the objective pill.
+- The allocator is called `claimLabel`, not `placeLabel`, because a successful
+  call records its rectangle and the next label has to route around it. A probe
+  that calls it twice for the same label gets a different answer the second
+  time, and the name is the only warning.
 
 ## Asphalt is bright and rooftops are dark
 

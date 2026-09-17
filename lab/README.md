@@ -2,6 +2,15 @@
 
 Four complete interface systems over the same frame of the same sector.
 
+> **TACTICAL SLATE won and is now the shipped interface.** The lab is kept as
+> the record of what the other three argued and what each cost, and as the
+> harness for the next question. Two changes were made on the way in: the
+> world grade is gentler than the mockup's, because slate's original numbers
+> compressed the Ghost's fifteen points of luminance by about a quarter and
+> that is the hardest thing in the game; and the zoom stack became a DOM
+> control that collapses to one pill, because five permanent detents is two
+> hundred pixels of the edge the aiming thumb lives on.
+
 ```
 python3 -m http.server 8899      # from vanguard/
 open http://127.0.0.1:8899/lab/
@@ -49,11 +58,15 @@ not which one looks coolest in a screenshot.
 The point of building it, and it paid for itself before any of the candidates
 were finished:
 
-- **The shipped amber HUD collides with itself at phone size.** Put a hostile
-  high on the screen and its bracket and class label land on top of the phase
-  label, the ANVIL integrity bar and the inbound-shell countdown all at once.
-  At 740x360 the top-centre is the busiest part of the interface and the only
-  part with nothing reserving it. Flip to VANGUARD at PHONE to see it.
+- **The shipped amber HUD collided with itself at phone size.** A hostile high
+  on the screen put its bracket and class label on top of the phase label, the
+  ANVIL integrity bar and the inbound-shell countdown all at once. At 740x360
+  the top-centre is the busiest part of the interface and the only part with
+  nothing reserving it. Flip to VANGUARD at PHONE to see what it looked like.
+
+  Fixed generally rather than by hand-tuning the one case: the chrome now
+  measures its own rectangles and anything canvas-drawn that carries a label
+  routes around them. See "the collision fix" in the main README.
 - **`Thermal.pass` could crash the render loop.** It indexed its cached grain
   tiles with `(t * 24 | 0) % grainN`, which returns a NEGATIVE index for a
   negative `t` — and `t` genuinely arrives negative, because a
