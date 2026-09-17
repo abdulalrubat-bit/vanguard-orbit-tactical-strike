@@ -214,8 +214,16 @@ const Sector = (() => {
     pavement: 52,    // concrete, cools faster than asphalt
     gravel: 58,      // loose stone, holds heat well
     rubble: 46,
-    roof: 30,        // sheet metal, dumps its heat first — near black
-    parapet: 44,     // the edge catches and re-radiates off the street
+    /* Three roof materials, three base tones, and the spread is the point.
+     * One `roof` value for every building made a skyline of identical black
+     * slabs; a metal roof, a gravel roof and a concrete deck genuinely differ
+     * by twenty points of luminance on a thermal sweep, and giving them that
+     * is what turned the sector from a diagram into a city. All three still
+     * sit far below the asphalt, so the rule holds. */
+    roofMetal: 26,   // sheet, dumps its heat first — the darkest thing here
+    roofDeck: 34,    // concrete deck, some mass, holds a little
+    roofGravel: 43,  // built-up gravel, holds the most of the three
+    parapet: 54,     // the edge catches and re-radiates off the street
     plantCold: 40,
     plantHot: 150,   // running compressors, the only steady white on a roof
     metal: 62
@@ -227,64 +235,241 @@ const Sector = (() => {
     c.width = SECTOR_W; c.height = SECTOR_H;
     const g = c.getContext('2d');
     const R = mulberry32(seed ^ 0x9e37);
+    const rint = (lo, hi) => lo + Math.floor(R() * (hi - lo + 1));
+
+    /* All of this is baked into one bitmap at generation and blitted once per
+     * frame, so every stroke below is FREE at runtime. That is the whole
+     * reason to spend effort here rather than on live effects: craft in the
+     * terrain costs a couple of hundred milliseconds on the loading card and
+     * nothing at all afterwards. */
 
     g.fillStyle = grey(G.ground); g.fillRect(0, 0, SECTOR_W, SECTOR_H);
+
+    // Low-frequency mottling. A flat fill reads as paper; ground that varies
+    // by a few points over a couple of hundred pixels reads as ground. This
+    // one pass does more for the picture than any amount of fine speckle.
+    for (let i = 0; i < 160; i++) {
+      const x = R() * SECTOR_W, y = R() * SECTOR_H, rr = 90 + R() * 220;
+      const up = R() < 0.5;
+      const gr = g.createRadialGradient(x, y, 0, x, y, rr);
+      gr.addColorStop(0, (up ? 'rgba(255,255,255,' : 'rgba(0,0,0,') + (0.05 + R() * 0.07) + ')');
+      gr.addColorStop(1, up ? 'rgba(255,255,255,0)' : 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+    }
     speckle(g, R, 0, 0, SECTOR_W, SECTOR_H, 2600, 10, 0.5);
 
-    // Pavement first as a fat underlay, then the carriageway on top of it.
-    // Two rectangles per road instead of a stroke-and-outline, because the
-    // junctions then resolve themselves for free where roads cross.
+    /* ------------------------------------------------------------ roads --- */
+
+    // Pavement as a fat underlay, carriageway on top. Two rectangles per road
+    // rather than a stroke-and-outline, because the junctions then resolve
+    // themselves for free wherever roads cross.
     const pw = L.ROAD_W / 2 + L.SIDEWALK;
     g.fillStyle = grey(G.pavement);
     for (const x of L.vx) g.fillRect(x - pw, 0, pw * 2, SECTOR_H);
     for (const y of L.hy) g.fillRect(0, y - pw, SECTOR_W, pw * 2);
+
+    // The kerb: a hairline of cooler concrete where the pavement meets the
+    // road. One pixel, and it is what makes a street look built rather than
+    // drawn.
+    g.fillStyle = grey(G.pavement - 14);
+    for (const x of L.vx) {
+      g.fillRect(x - L.ROAD_W / 2 - 2, 0, 2, SECTOR_H);
+      g.fillRect(x + L.ROAD_W / 2, 0, 2, SECTOR_H);
+    }
+    for (const y of L.hy) {
+      g.fillRect(0, y - L.ROAD_W / 2 - 2, SECTOR_W, 2);
+      g.fillRect(0, y + L.ROAD_W / 2, SECTOR_W, 2);
+    }
+
     g.fillStyle = grey(G.asphalt);
     for (const x of L.vx) g.fillRect(x - L.ROAD_W / 2, 0, L.ROAD_W, SECTOR_H);
     for (const y of L.hy) g.fillRect(0, y - L.ROAD_W / 2, SECTOR_W, L.ROAD_W);
 
-    // Lane markings are paint over asphalt: less mass, so slightly cooler.
+    // Resurfacing patches. Newer asphalt sits a few points off the old, and a
+    // road with two or three of them stops looking extruded.
+    for (let i = 0; i < 90; i++) {
+      const vertical = R() < 0.5;
+      const line = vertical ? L.vx[rint(0, L.vx.length - 1)] : L.hy[rint(0, L.hy.length - 1)];
+      if (line === undefined) continue;
+      const along = R() * (vertical ? SECTOR_H : SECTOR_W);
+      const len = 60 + R() * 220, wide = L.ROAD_W * (0.3 + R() * 0.6);
+      g.fillStyle = 'rgba(' + (R() < 0.5 ? '255,255,255,' : '0,0,0,') + (0.04 + R() * 0.06) + ')';
+      if (vertical) g.fillRect(line - wide / 2, along, wide, len);
+      else g.fillRect(along, line - wide / 2, len, wide);
+    }
+
+    // Lane markings: paint over asphalt, so less mass and slightly cooler.
     g.strokeStyle = grey(G.asphalt - 16); g.lineWidth = 3; g.setLineDash([26, 22]);
     g.beginPath();
     for (const x of L.vx) { g.moveTo(x, 0); g.lineTo(x, SECTOR_H); }
     for (const y of L.hy) { g.moveTo(0, y); g.lineTo(SECTOR_W, y); }
     g.stroke(); g.setLineDash([]);
 
+    /* Crossings on each of the four approaches to every junction. Free
+     * orientation cues from altitude, and the only hard geometry on an
+     * otherwise noisy surface.
+     *
+     * Offset from the CARRIAGEWAY edge, not the pavement edge. Measured from
+     * the pavement they landed forty pixels out on the verge, which read as
+     * light rectangles floating in a garden. */
+    const half = L.ROAD_W / 2;
+    g.fillStyle = grey(G.asphalt + 16);       // thermoplastic, sits proud and warm
+    for (const x of L.vx) for (const y of L.hy) {
+      for (let i = 0; i < 5; i++) {
+        const o = 7 + i * 14;
+        g.fillRect(x - half + o, y - half - 18, 7, 14);   // north approach
+        g.fillRect(x - half + o, y + half + 4, 7, 14);    // south
+        g.fillRect(x - half - 18, y - half + o, 14, 7);   // west
+        g.fillRect(x + half + 4, y - half + o, 14, 7);    // east
+      }
+    }
+
+    // Drain covers: cast iron, dense, and colder than the asphalt around it.
+    for (let i = 0; i < 70; i++) {
+      const vertical = R() < 0.5;
+      const line = vertical ? L.vx[rint(0, L.vx.length - 1)] : L.hy[rint(0, L.hy.length - 1)];
+      if (line === undefined) continue;
+      const along = R() * (vertical ? SECTOR_H : SECTOR_W);
+      const off = (L.ROAD_W / 2 - 7) * (R() < 0.5 ? -1 : 1);
+      g.fillStyle = grey(G.asphalt - 26);
+      g.beginPath();
+      g.arc(vertical ? line + off : along, vertical ? along : line + off, 5, 0, 7);
+      g.fill();
+    }
+
     for (const x of L.vx) speckle(g, R, x - L.ROAD_W / 2, 0, L.ROAD_W, SECTOR_H, 900, 8, 0.35);
     for (const y of L.hy) speckle(g, R, 0, y - L.ROAD_W / 2, SECTOR_W, L.ROAD_W, 900, 8, 0.35);
+
+    /* ------------------------------------------------------------- lots --- */
 
     for (const lot of L.lots) {
       g.fillStyle = grey(lot.kind === 'gravel' ? G.gravel : G.rubble);
       g.fillRect(lot.x, lot.y, lot.w, lot.h);
       speckle(g, R, lot.x, lot.y, lot.w, lot.h, Math.floor(lot.w * lot.h / 260), 14, 0.7);
+      // Standing water and old slab footprints, both cold.
+      if (R() < 0.55) {
+        g.fillStyle = 'rgba(0,0,0,.28)';
+        const sx = lot.x + 20 + R() * (lot.w - 90), sy = lot.y + 20 + R() * (lot.h - 70);
+        g.fillRect(sx, sy, 40 + R() * 50, 30 + R() * 40);
+      }
     }
 
-    // Buildings. The drop shadow is drawn cold and offset down-right: from a
-    // loitering asset the sensor is never exactly overhead, and a flat roof
-    // with no shadow at all reads as a hole cut in the map.
+    /* --------------------------------------------------------- buildings --- */
+
+    /* Soft shadow, then the roof, then relief. Flat roofs with a hard offset
+     * rectangle under them read as holes cut in the map; a graded falloff and
+     * two lit edges give the city height, which is the single biggest reason
+     * the sector now looks like a place rather than a diagram. */
     for (const b of L.buildings) {
-      g.fillStyle = 'rgba(0,0,0,0.55)';
-      g.fillRect(b.x + 7, b.y + 9, b.w, b.h);
+      const sh = 10;
+      const gr = g.createLinearGradient(b.x, b.y + b.h, b.x, b.y + b.h + sh * 2.2);
+      gr.addColorStop(0, 'rgba(0,0,0,0.6)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+      g.fillRect(b.x + sh * 0.7, b.y + b.h, b.w, sh * 2.2);
+      const gr2 = g.createLinearGradient(b.x + b.w, b.y, b.x + b.w + sh * 2.2, b.y);
+      gr2.addColorStop(0, 'rgba(0,0,0,0.6)');
+      gr2.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr2;
+      g.fillRect(b.x + b.w, b.y + sh * 0.7, sh * 2.2, b.h);
     }
+
     for (const b of L.buildings) {
       const tone = b.tone || 1;
-      g.fillStyle = grey(G.roof * tone);
+      const kind = R();                       // roof material, one of three
+      const base = kind < 0.38 ? G.roofMetal : kind < 0.72 ? G.roofGravel : G.roofDeck;
+      g.fillStyle = grey(base * tone);
       g.fillRect(b.x, b.y, b.w, b.h);
-      g.strokeStyle = grey(G.parapet * tone); g.lineWidth = 3;
-      g.strokeRect(b.x + 1.5, b.y + 1.5, b.w - 3, b.h - 3);
+
+      if (kind < 0.38) {
+        // Sheet metal: standing seams, the coldest roof in the sector.
+        g.strokeStyle = grey(base * tone + 15); g.lineWidth = 1;
+        g.beginPath();
+        for (let x = b.x + 9; x < b.x + b.w - 4; x += 11) {
+          g.moveTo(x, b.y + 3); g.lineTo(x, b.y + b.h - 3);
+        }
+        g.stroke();
+      } else if (kind < 0.72) {
+        // Built-up gravel: heavy grain, the warmest of the three.
+        speckle(g, R, b.x, b.y, b.w, b.h, Math.floor(b.w * b.h / 240), 20, 0.8);
+      } else {
+        // Concrete deck: expansion joints on a grid, cut cold.
+        g.strokeStyle = grey(base * tone - 13); g.lineWidth = 2;
+        g.beginPath();
+        for (let x = b.x + 26; x < b.x + b.w - 8; x += 34) { g.moveTo(x, b.y + 4); g.lineTo(x, b.y + b.h - 4); }
+        for (let y = b.y + 26; y < b.y + b.h - 8; y += 34) { g.moveTo(b.x + 4, y); g.lineTo(b.x + b.w - 4, y); }
+        g.stroke();
+      }
       speckle(g, R, b.x, b.y, b.w, b.h, Math.floor(b.w * b.h / 900), 10, 0.35);
+
+      // Relief. The parapet catches the street's heat on the two edges facing
+      // it and shades the two facing away — the same two-edge trick every
+      // isometric tileset uses, done with two rectangles.
+      g.fillStyle = grey(G.parapet * tone);
+      g.fillRect(b.x, b.y, b.w, 2.5);
+      g.fillRect(b.x, b.y, 2.5, b.h);
+      g.fillStyle = 'rgba(0,0,0,.45)';
+      g.fillRect(b.x, b.y + b.h - 2.5, b.w, 2.5);
+      g.fillRect(b.x + b.w - 2.5, b.y, 2.5, b.h);
+      g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1;
+      g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1);
+
+      // Inner ambient occlusion: the parapet casts inwards too.
+      const ao = g.createLinearGradient(b.x, b.y, b.x, b.y + 16);
+      ao.addColorStop(0, 'rgba(0,0,0,.30)');
+      ao.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = ao; g.fillRect(b.x, b.y, b.w, 16);
+
       for (const p of (b.plant || [])) {
+        g.fillStyle = 'rgba(0,0,0,.5)';
+        g.fillRect(p.x + 2, p.y + 3, p.w, p.h);
         g.fillStyle = grey(p.hot ? G.plantHot : G.plantCold);
         g.fillRect(p.x, p.y, p.w, p.h);
-        g.strokeStyle = grey(p.hot ? 200 : 54); g.lineWidth = 1;
+        g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(p.x, p.y, p.w, 1.5);
+        g.strokeStyle = grey(p.hot ? 210 : 56); g.lineWidth = 1;
         g.strokeRect(p.x + .5, p.y + .5, p.w - 1, p.h - 1);
       }
     }
 
-    // Static heat bloom, baked. Doing this live would mean a second full-screen
+    /* ---------------------------------------------------------- planting --- */
+
+    /* Street trees, and they are the one thing on this map that is COLD on
+     * purpose. A canopy sheds its heat fast and hides the warm ground under
+     * it, so a line of trees reads as a row of dark coins along a bright
+     * street — the strongest tonal contrast in the sector, for free. */
+    const treeAt = (x, y, rr) => {
+      g.fillStyle = 'rgba(0,0,0,.5)';
+      g.beginPath(); g.ellipse(x + rr * 0.3, y + rr * 0.4, rr, rr * 0.9, 0, 0, 7); g.fill();
+      g.fillStyle = grey(G.ground - 6);
+      g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.05)';
+      g.beginPath(); g.arc(x - rr * 0.25, y - rr * 0.25, rr * 0.55, 0, 7); g.fill();
+    };
+    for (const x of L.vx) {
+      for (let y = 60; y < SECTOR_H - 60; y += rint(74, 128)) {
+        if (L.hy.some(h => Math.abs(h - y) < pw + 40)) continue;
+        const off = pw + 10;
+        if (R() < 0.75) treeAt(x - off, y, 8 + R() * 4);
+        if (R() < 0.75) treeAt(x + off, y + 30, 8 + R() * 4);
+      }
+    }
+    for (const y of L.hy) {
+      for (let x = 60; x < SECTOR_W - 60; x += rint(74, 128)) {
+        if (L.vx.some(v => Math.abs(v - x) < pw + 40)) continue;
+        const off = pw + 10;
+        if (R() < 0.7) treeAt(x, y - off, 8 + R() * 4);
+        if (R() < 0.7) treeAt(x + 30, y + off, 8 + R() * 4);
+      }
+    }
+
+    /* ------------------------------------------------------------- heat --- */
+
+    // Static bloom, baked. Doing this live would mean a second full-screen
     // buffer and a blur every frame for emitters that never move.
     for (const h of L.hotspots) {
       const gr = g.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r);
       gr.addColorStop(0, 'rgba(255,255,255,' + h.i + ')');
+      gr.addColorStop(0.5, 'rgba(255,255,255,' + h.i * 0.32 + ')');
       gr.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = gr; g.fillRect(h.x - h.r, h.y - h.r, h.r * 2, h.r * 2);
     }

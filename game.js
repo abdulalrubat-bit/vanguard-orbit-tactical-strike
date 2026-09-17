@@ -1041,11 +1041,15 @@ function drawWorld() {
    * crossing; a screen pass compresses that ratio and a black overlay scales
    * the difference down outright. At the mockup's 0.42/0.26 the gap shrank by
    * about a quarter, which is a prettier interface bought by making the
-   * hardest thing in the game harder for no design reason at all. */
+   * hardest thing in the game harder for no design reason at all.
+   *
+   * The lift came down again once the terrain grew real tonal structure: a
+   * screen pass that big was hazing a picture that now has its own contrast,
+   * and lifting the blacks less helps the Ghost twice over. */
   wg.save();
   wg.setTransform(1, 0, 0, 1, 0, 0);
   wg.globalCompositeOperation = 'screen';
-  wg.fillStyle = 'rgba(18,22,34,0.32)'; wg.fillRect(0, 0, world.width, world.height);
+  wg.fillStyle = 'rgba(18,22,34,0.18)'; wg.fillRect(0, 0, world.width, world.height);
   wg.globalCompositeOperation = 'source-over';
   wg.fillStyle = 'rgba(4,6,12,0.14)'; wg.fillRect(0, 0, world.width, world.height);
   wg.restore();
@@ -1318,6 +1322,14 @@ function drawThreatChips(g) {
     const r = Math.max(12, (k.r + 5) * S.cam.z);
     g.save();
     g.globalAlpha = e.tag;
+    // Acquisition has a shape: the mark settles onto the contact from just
+    // outside it rather than switching on. e.tag already eases 0->1 over
+    // about a sixth of a second, so the scale is free.
+    if (e.tag < 0.999) {
+      g.translate(x, y);
+      g.scale(1 + (1 - e.tag) * 0.55, 1 + (1 - e.tag) * 0.55);
+      g.translate(-x, -y);
+    }
 
     // The arc is the health bar and the bracket at once: it opens clockwise
     // from the contact's left and shortens as the thing is chewed down.
@@ -1568,7 +1580,15 @@ const UI = (() => {
   function wave(n, label) {
     const tot = S.waves ? S.waves.length : 8;
     setText($('waveN'), 'PHASE ' + Math.min(n, tot) + ' OF ' + tot);
-    setText($('waveL'), label);
+    const el = $('waveL');
+    if (el.textContent !== label) {
+      el.textContent = label;
+      // Restart the animation rather than resume it: without the reflow the
+      // class is already present and the second change plays nothing.
+      const pill = $('objPill');
+      pill.classList.remove('change'); void pill.offsetWidth;
+      pill.classList.add('change');
+    }
     measureChrome();            // the objective pill just changed width
   }
 
@@ -1704,8 +1724,9 @@ const UI = (() => {
       + (pay.mult > 1.001
         ? '<div><b>TIER MULTIPLIER</b><span>\u00D7' + pay.mult.toFixed(2) + '</span></div>'
         : '')
-      + '<div class="tot"><b>REQUISITION EARNED</b><span>' + pay.total + '</span></div>';
+      + '<div class="tot"><b>REQUISITION EARNED</b><span id="resTotal">0</span></div>';
     $('resStats').innerHTML = rows;
+    rollTo($('resTotal'), pay.total, 850);
 
     // A promotion is the one thing on this screen worth interrupting for.
     $('resRank').textContent = (after !== before) ? 'PROMOTED \u2014 ' + after : after;
@@ -1713,6 +1734,20 @@ const UI = (() => {
     paintRankBar($('resBar'));
     hub();
     $('result').classList.add('show');
+  }
+
+  /* A number that lands on its value instead of appearing at it. Eased, not
+   * linear — a linear count-up reads as a progress bar, an eased one reads as
+   * a total being tallied. */
+  function rollTo(el, to, ms) {
+    const t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(to * e);
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   /* --------------------------------------------------------- the hub ------ */

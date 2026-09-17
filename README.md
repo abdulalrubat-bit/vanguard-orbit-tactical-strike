@@ -92,6 +92,29 @@ flip below. On the canvas the priority falls out of the draw order instead: the
 chip paints after, over the top, because a contact is worth more than a
 timecode.
 
+### Written-down tokens
+
+Elevation, radius, easing and duration are declared once on `:root` and every
+panel picks from those lists and nothing else. That is what "defined" buys: the
+eye reads a consistent system long before it reads any single control, and a
+restyle is an edit in one place.
+
+Two details do most of the work:
+
+- **Two shadows per elevation.** A tight contact shadow anchors a panel to the
+  surface and a wide soft one lifts it off. One shadow alone always reads as
+  either a sticker or a smudge.
+- **A one-pixel inner highlight along the top edge** (`--lip`). The cheapest
+  trick in dark interface work and the most effective — it says the panel has a
+  thickness and is catching light from above.
+
+Motion is on the same footing: `--ease` for entrances, `--pop` with a little
+overshoot for accents, three durations. The zoom stack unfurls on a stagger,
+the objective pill lifts when it changes, the payout total counts up on an
+eased curve rather than a linear one (a linear count reads as a progress bar;
+an eased one reads as a tally landing). Everything is wrapped in a
+`prefers-reduced-motion` guard.
+
 ## The collision fix
 
 The amber build had a bug the lab exposed on its first run: a hostile high on
@@ -140,6 +163,33 @@ interface.
 The interface, in turn, is the only amber on the screen. Nothing in the world
 layer may be amber and nothing in the HUD may be grey. One `if` away from mud,
 and the whole look depends on it.
+
+## Craft in the terrain is free
+
+The sector is baked into one bitmap at generation and blitted once per frame,
+so every stroke in `paint()` costs a couple of hundred milliseconds on the
+loading card and **nothing at all** afterwards. That is the reason to spend
+effort there rather than on live effects, and it is where the picture actually
+comes from:
+
+- **Low-frequency mottling** under everything. A flat fill reads as paper;
+  ground that varies by a few points over a couple of hundred pixels reads as
+  ground. This one pass does more than any amount of fine speckle.
+- **Three roof materials with three base tones** — sheet metal at 26, concrete
+  deck at 34, built-up gravel at 43, each with its own grain. One `roof` value
+  for every building made a skyline of identical black slabs; twenty points of
+  spread turned the sector from a diagram into a city. All three still sit far
+  below the asphalt, so the rule above holds.
+- **Relief on every building**: a graded shadow falling down-right, two lit
+  parapet edges and two shaded ones, and an inner occlusion gradient. Flat
+  roofs with a hard offset rectangle under them read as holes cut in the map.
+- **Street furniture that earns its place** — kerbs, resurfacing patches, drain
+  covers, and zebra crossings on all four approaches to every junction. The
+  crossings are the only hard geometry on an otherwise noisy surface, which
+  makes them free orientation cues from altitude.
+- **Street trees, deliberately cold.** A canopy sheds its heat fast and hides
+  the warm ground under it, so a line of trees reads as dark coins along a
+  bright street — the strongest tonal contrast in the sector, for nothing.
 
 ## The map is not painted
 

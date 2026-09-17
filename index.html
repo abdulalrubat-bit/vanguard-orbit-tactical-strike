@@ -31,7 +31,36 @@
     --ew:#c08cff; --warn:#ffd166;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
     --mono:ui-monospace,'SF Mono',Menlo,Consolas,'Roboto Mono',monospace;
-    --r:12px;
+
+    /* ---- Tokens ---------------------------------------------------------
+       Written down rather than improvised per component. Every panel in the
+       game picks one elevation, one radius and one duration from these lists
+       and nothing else, which is the difference between a dark theme and a
+       designed one: the eye reads a consistent system long before it reads
+       any single control. */
+    --r-sm:8px; --r:12px; --r-lg:16px; --r-xl:20px; --r-pill:999px;
+
+    /* Two shadows per elevation — a tight contact shadow that anchors the
+       panel to the surface, and a wide soft one that lifts it off. One
+       shadow alone always reads as either a sticker or a smudge. */
+    --e1:0 1px 2px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.30);
+    --e2:0 1px 2px rgba(0,0,0,.50), 0 8px 24px rgba(0,0,0,.42);
+    --e3:0 2px 4px rgba(0,0,0,.55), 0 20px 56px rgba(0,0,0,.55);
+    /* A one-pixel inner highlight along the top edge. It is the cheapest
+       trick in dark UI and the most effective: it says the panel has a
+       thickness and is catching light from above. */
+    --lip:inset 0 1px 0 rgba(255,255,255,.075);
+    --sheen:linear-gradient(rgba(255,255,255,.045),rgba(255,255,255,0) 42%);
+
+    --ease:cubic-bezier(.2,.8,.2,1);          /* settle, for entrances */
+    --ease-in:cubic-bezier(.4,0,1,1);
+    --pop:cubic-bezier(.34,1.42,.64,1);       /* slight overshoot, for accents */
+    --d1:120ms; --d2:220ms; --d3:360ms;
+    --glass:blur(14px) saturate(1.3);
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;
+      transition-duration:1ms!important}
   }
   *{box-sizing:border-box}
   html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
@@ -66,8 +95,12 @@
   #convoyCard{top:calc(env(safe-area-inset-top) + 12px);
     left:calc(env(safe-area-inset-left) + 12px);
     display:flex;gap:10px;align-items:center;padding:10px 14px 10px 10px;
-    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    backdrop-filter:blur(6px);pointer-events:none}
+    background:var(--sheen),var(--panel);border:1px solid var(--line);
+    border-radius:var(--r-lg);box-shadow:var(--e2),var(--lip);
+    backdrop-filter:var(--glass);pointer-events:none;
+    transition:box-shadow var(--d2) var(--ease),border-color var(--d2) var(--ease)}
+  #convoyCard.crit{border-color:rgba(255,90,90,.55);
+    box-shadow:var(--e2),var(--lip),0 0 0 1px rgba(255,90,90,.25),0 0 28px rgba(255,90,90,.18)}
   #ccIcon{width:36px;height:36px;flex:0 0 36px;border-radius:9px;
     background:rgba(104,227,155,.14);border:1px solid var(--good);color:var(--good);
     display:grid;place-items:center;font-size:15px;line-height:1}
@@ -82,43 +115,71 @@
     overflow:hidden}
   /* scaleX rather than width: the integrity bar moves on almost every frame of
      a bad wave, and a width animation relayouts the card each time. */
-  #intBar{display:block;height:100%;width:100%;border-radius:4px;background:var(--good);
-    transform-origin:left center;transform:scaleX(1);transition:transform .16s linear}
+  #intBar{display:block;height:100%;width:100%;border-radius:4px;
+    background:linear-gradient(90deg,#4bd389,var(--good));
+    box-shadow:0 0 12px rgba(104,227,155,.45);
+    transform-origin:left center;transform:scaleX(1);
+    transition:transform var(--d2) var(--ease),background var(--d2) linear}
   #ccMeta{margin-top:6px;font:600 9px var(--mono);color:var(--dim);letter-spacing:.2px}
-  #convoyCard.crit #intBar{background:var(--bad)}
+  #convoyCard.crit #intBar{background:linear-gradient(90deg,#d33c3c,var(--bad));
+    box-shadow:0 0 14px rgba(255,90,90,.5)}
   #convoyCard.crit #intVal{color:var(--bad)}
   #convoyCard.crit #ccIcon{background:rgba(255,90,90,.16);border-color:var(--bad);color:var(--bad)}
 
   /* ---- Objective pill --------------------------------------------------- */
   #objPill{top:calc(env(safe-area-inset-top) + 14px);left:50%;transform:translateX(-50%);
-    padding:7px 16px;background:var(--panel);border:1px solid var(--line);
-    border-radius:999px;font:700 11px var(--sans);letter-spacing:.4px;
+    padding:8px 18px;background:var(--sheen),var(--panel);border:1px solid var(--line);
+    border-radius:var(--r-pill);font:700 11px var(--sans);letter-spacing:.5px;
     white-space:nowrap;max-width:36vw;overflow:hidden;text-overflow:ellipsis;
-    backdrop-filter:blur(6px);pointer-events:none}
+    box-shadow:var(--e2),var(--lip);backdrop-filter:var(--glass);pointer-events:none}
+  /* A new objective announces itself with one clean lift rather than a flash. */
+  #objPill.change{animation:objIn var(--d3) var(--pop)}
+  @keyframes objIn{
+    from{transform:translateX(-50%) translateY(-10px) scale(.94);opacity:0}
+    to{transform:translateX(-50%) translateY(0) scale(1);opacity:1}}
 
   /* ---- Top right: recentre, pause, zoom --------------------------------- */
   #topRight{top:calc(env(safe-area-inset-top) + 12px);
     right:calc(env(safe-area-inset-right) + 12px);display:flex;gap:8px;align-items:flex-start}
-  .iconBtn{width:40px;height:40px;border-radius:11px;background:var(--panel);
+  .iconBtn{width:42px;height:42px;border-radius:var(--r);background:var(--sheen),var(--panel);
     border:1px solid var(--line);display:grid;place-items:center;font-size:15px;
-    color:var(--dim2);pointer-events:auto;backdrop-filter:blur(6px)}
-  .iconBtn:active{background:var(--accent);color:#171008;border-color:var(--accent)}
+    color:var(--dim2);pointer-events:auto;backdrop-filter:var(--glass);
+    box-shadow:var(--e1),var(--lip);
+    transition:transform var(--d1) var(--ease),background var(--d1) linear,
+      color var(--d1) linear,border-color var(--d1) linear}
+  .iconBtn:active{background:var(--accent);color:#171008;border-color:var(--accent);
+    transform:scale(.93)}
 
   /* The zoom control collapses to one pill and expands on tap. A permanent
      stack of five detents — which GEN-2 OPTICS buys — is 200px of the right
      edge, and the right edge is where the aiming thumb lives. */
   #zoomWrap{position:relative;pointer-events:auto}
-  #zoomBtn{min-width:56px;height:40px;padding:0 12px;border-radius:11px;
-    background:var(--panel);border:1px solid var(--line);color:var(--ink);
-    font:700 12px var(--mono);backdrop-filter:blur(6px)}
-  #zoomBtn:active,#zoomWrap.open #zoomBtn{border-color:var(--accent);color:var(--accent)}
-  #zoomList{position:absolute;top:46px;right:0;display:none;flex-direction:column;gap:6px}
+  #zoomBtn{min-width:60px;height:42px;padding:0 13px;border-radius:var(--r);
+    background:var(--sheen),var(--panel);border:1px solid var(--line);color:var(--ink);
+    font:700 12px var(--mono);backdrop-filter:var(--glass);box-shadow:var(--e1),var(--lip);
+    transition:transform var(--d1) var(--ease),border-color var(--d1) linear,
+      color var(--d1) linear}
+  #zoomBtn:active{transform:scale(.93)}
+  #zoomWrap.open #zoomBtn{border-color:var(--accent);color:var(--accent)}
+  #zoomList{position:absolute;top:50px;right:0;display:none;flex-direction:column;gap:6px}
   #zoomWrap.open #zoomList{display:flex}
-  #zoomList button{min-width:56px;padding:9px 12px;border-radius:10px;
-    background:var(--panel);border:1px solid var(--line);color:var(--dim2);
-    font:700 11px var(--mono);backdrop-filter:blur(6px)}
+  /* Staggered, so the stack unfurls instead of appearing. Six lines of CSS
+     and it is most of what separates "modern" from "functional". */
+  #zoomList button{min-width:60px;padding:10px 13px;border-radius:var(--r-sm);
+    background:var(--sheen),var(--panel);border:1px solid var(--line);color:var(--dim2);
+    font:700 11px var(--mono);backdrop-filter:var(--glass);box-shadow:var(--e1),var(--lip);
+    animation:zoomIn var(--d2) var(--ease) backwards;
+    transition:transform var(--d1) var(--ease)}
+  #zoomList button:active{transform:scale(.94)}
+  #zoomList button:nth-child(1){animation-delay:0ms}
+  #zoomList button:nth-child(2){animation-delay:26ms}
+  #zoomList button:nth-child(3){animation-delay:52ms}
+  #zoomList button:nth-child(4){animation-delay:78ms}
+  #zoomList button:nth-child(5){animation-delay:104ms}
+  @keyframes zoomIn{from{opacity:0;transform:translateY(-8px) scale(.94)}
+    to{opacity:1;transform:none}}
   #zoomList button.on{border-color:var(--accent);color:var(--accent);
-    background:rgba(255,157,60,.18)}
+    background:rgba(255,157,60,.20)}
 
   /* ---- Bottom bar: heat over the stations ------------------------------- */
   #bottomBar{position:fixed;z-index:4;left:50%;transform:translateX(-50%);
@@ -130,15 +191,25 @@
     min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
   #heatTrack{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.10);
     overflow:hidden}
-  #heatFill{display:block;height:100%;width:100%;border-radius:5px;background:var(--accent);
-    transform-origin:left center;transform:scaleX(0)}
-  #heatWrap.hot #heatFill{background:var(--bad)}
+  #heatTrack{box-shadow:inset 0 1px 2px rgba(0,0,0,.5)}
+  #heatFill{display:block;height:100%;width:100%;border-radius:5px;
+    background:linear-gradient(90deg,#ffb861,var(--accent));
+    box-shadow:0 0 12px rgba(255,157,60,.5);
+    transform-origin:left center;transform:scaleX(0);
+    transition:background var(--d2) linear,box-shadow var(--d2) linear}
+  #heatWrap.hot #heatFill{background:linear-gradient(90deg,#ff8a5a,var(--bad));
+    box-shadow:0 0 16px rgba(255,90,90,.6)}
   #heatWrap.locked #heatFill{background:var(--bad);animation:hp .3s steps(2,end) infinite}
+  #heatWrap.locked #heatPct{color:var(--bad)}
   @keyframes hp{50%{opacity:.35}}
 
   #wepBar{display:flex;gap:8px;pointer-events:auto}
-  .wep{position:relative;width:clamp(66px,17vw,84px);padding:9px 0 8px;border-radius:10px;
-    background:var(--panel);border:1px solid var(--line);text-align:center}
+  .wep{position:relative;width:clamp(66px,17vw,84px);padding:9px 0 8px;
+    border-radius:var(--r);background:var(--sheen),var(--panel);
+    border:1px solid var(--line);text-align:center;
+    box-shadow:var(--e1),var(--lip);
+    transition:transform var(--d1) var(--ease),border-color var(--d2) var(--ease),
+      background var(--d2) linear,box-shadow var(--d2) var(--ease)}
   .wep .n{display:block;font:800 19px var(--sans);line-height:1}
   .wep .n{font-variant-numeric:tabular-nums}
   .wep .u{display:block;margin-top:3px;font:600 9px var(--sans);color:var(--dim)}
@@ -147,11 +218,15 @@
   .wep .pip{position:absolute;left:8px;right:8px;bottom:5px;height:2px;border-radius:1px;
     background:rgba(255,255,255,.12);overflow:hidden}
   .wep .pip>i{display:block;height:100%;width:100%;background:var(--accent);
-    transform-origin:left center;transform:scaleX(0)}
+    transform-origin:left center;transform:scaleX(0);
+    transition:background var(--d2) linear}
   .wep.locked .pip{display:none}
-  .wep.on{border-color:var(--accent);background:rgba(255,157,60,.20)}
+  .wep.on{border-color:var(--accent);
+    background:var(--sheen),rgba(255,157,60,.20);
+    box-shadow:var(--e2),var(--lip),0 0 0 1px rgba(255,157,60,.3),
+      0 0 22px rgba(255,157,60,.22)}
   .wep.on .n{color:var(--accent)}
-  .wep:active{background:rgba(255,157,60,.3)}
+  .wep:active{transform:scale(.95)}
   /* A station that has not been requisitioned is shown, not hidden: the player
      should be able to read the shape of the aircraft they are working towards
      off the bottom bar from their very first sortie. */
@@ -164,15 +239,21 @@
     right:calc(env(safe-area-inset-right) + 16px);
     bottom:calc(env(safe-area-inset-bottom) + 16px);
     width:clamp(68px,16vw,84px);aspect-ratio:1;border-radius:50%;
-    background:rgba(255,157,60,.20);border:2px solid var(--accent);color:var(--accent);
-    font:800 12px var(--sans);letter-spacing:1px;backdrop-filter:blur(4px)}
-  #btnTrigger.on{background:var(--accent);color:#171008}
+    background:radial-gradient(120% 120% at 50% 12%,rgba(255,157,60,.30),rgba(255,157,60,.14));
+    border:2px solid var(--accent);color:var(--accent);
+    font:800 12px var(--sans);letter-spacing:1px;backdrop-filter:var(--glass);
+    box-shadow:var(--e2),inset 0 1px 0 rgba(255,255,255,.18),0 0 24px rgba(255,157,60,.20);
+    transition:transform var(--d1) var(--ease),background var(--d1) linear,
+      color var(--d1) linear,box-shadow var(--d1) linear}
+  #btnTrigger.on{background:var(--accent);color:#171008;transform:scale(.94);
+    box-shadow:var(--e1),0 0 34px rgba(255,157,60,.6)}
 
   #jamBadge{position:fixed;z-index:5;top:calc(env(safe-area-inset-top) + 58px);left:50%;
     transform:translateX(-50%);padding:5px 12px;border-radius:999px;
     background:rgba(192,140,255,.14);border:1px solid var(--ew);color:var(--ew);
     font:700 10px var(--sans);letter-spacing:1px;opacity:0;pointer-events:none;
     transition:opacity .15s}
+  #jamBadge{box-shadow:var(--e1),var(--lip);backdrop-filter:var(--glass)}
   #jamBadge.on{opacity:1;animation:hp .4s steps(2,end) infinite}
 
   #flash{position:fixed;z-index:5;left:0;right:0;top:32%;text-align:center;
@@ -193,24 +274,38 @@
 
   /* ---- Overlays --------------------------------------------------------- */
   .overlay{position:fixed;inset:0;z-index:20;display:none;align-items:center;
-    justify-content:center;background:rgba(6,8,13,.92);padding:20px}
-  .overlay.show{display:flex}
+    justify-content:center;background:rgba(6,8,13,.84);padding:20px;
+    backdrop-filter:blur(18px) saturate(1.1)}
+  .overlay.show{display:flex;animation:fadeIn var(--d2) var(--ease)}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   .card{width:min(520px,92vw);max-height:92vh;overflow-y:auto;
-    -webkit-overflow-scrolling:touch;background:#141821;border:1px solid var(--line);
-    border-radius:18px;padding:24px 22px 20px;position:relative}
+    -webkit-overflow-scrolling:touch;
+    background:linear-gradient(rgba(255,255,255,.05),rgba(255,255,255,0) 30%),#141821;
+    border:1px solid var(--line);border-radius:var(--r-xl);padding:26px 24px 22px;
+    position:relative;box-shadow:var(--e3),var(--lip);
+    animation:cardIn var(--d3) var(--ease)}
+  @keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.975)}
+    to{opacity:1;transform:none}}
   .card.wide{width:min(760px,95vw)}
   .card h1{margin:0;font:800 clamp(24px,6.4vw,34px)/1.05 var(--sans);letter-spacing:-.5px}
   .card h1 small{display:block;margin-top:7px;font:600 clamp(10px,2.3vw,12px) var(--sans);
     letter-spacing:.6px;color:var(--dim)}
   .card p{font:400 12.5px/1.75 var(--sans);color:var(--dim2)}
-  .card .go{display:block;width:100%;margin-top:18px;padding:15px;border-radius:12px;
-    background:var(--accent);color:#171008;font:800 13px var(--sans);letter-spacing:.4px}
-  .card .go:active{background:#ffb160}
+  .card .go{display:block;width:100%;margin-top:20px;padding:16px;border-radius:var(--r);
+    background:linear-gradient(#ffb163,var(--accent));color:#171008;
+    font:800 13px var(--sans);letter-spacing:.4px;
+    box-shadow:var(--e2),inset 0 1px 0 rgba(255,255,255,.35),0 0 26px rgba(255,157,60,.24);
+    transition:transform var(--d1) var(--ease),filter var(--d1) linear}
+  .card .go:active{transform:scale(.98);filter:brightness(1.12)}
   .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-  .btn{flex:1;min-width:104px;padding:12px;border-radius:12px;background:var(--panel-hi);
-    border:1px solid var(--line);color:var(--ink);font:700 11.5px var(--sans);text-align:center}
-  .btn:active{background:rgba(255,255,255,.16)}
-  .btn.hot{border-color:var(--accent);background:rgba(255,157,60,.16);color:var(--accent)}
+  .btn{flex:1;min-width:104px;padding:13px;border-radius:var(--r);
+    background:var(--sheen),var(--panel-hi);border:1px solid var(--line);color:var(--ink);
+    font:700 11.5px var(--sans);text-align:center;box-shadow:var(--lip);
+    transition:transform var(--d1) var(--ease),background var(--d1) linear,
+      border-color var(--d2) var(--ease),box-shadow var(--d2) var(--ease)}
+  .btn:active{background:rgba(255,255,255,.16);transform:scale(.97)}
+  .btn.hot{border-color:var(--accent);background:var(--sheen),rgba(255,157,60,.16);
+    color:var(--accent);box-shadow:var(--lip),0 0 20px rgba(255,157,60,.20)}
   .btn.off{color:var(--dim)}
 
   .brief{margin:16px 0 0;border-top:1px solid var(--line);padding-top:14px}
@@ -220,8 +315,8 @@
     letter-spacing:.6px;padding-top:1px}
 
   /* ---- Career hub ------------------------------------------------------- */
-  .hub{margin:18px 0 4px;border:1px solid var(--line);border-radius:14px;
-    padding:13px 14px 12px;background:var(--panel-hi)}
+  .hub{margin:18px 0 4px;border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 15px 13px;background:var(--sheen),var(--panel-hi);box-shadow:var(--lip)}
   .hubTop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .hubTop span:first-child{font:700 14px var(--sans)}
   .hubTop span:last-child{font:700 13px var(--mono);color:var(--accent);
@@ -229,8 +324,11 @@
   .hubTop .up{color:var(--good)}
   .rankTrack{margin-top:9px;height:8px;border-radius:4px;background:rgba(255,255,255,.10);
     overflow:hidden}
-  .rankTrack>i{display:block;height:100%;border-radius:4px;background:var(--accent);
-    transition:width .5s ease}
+  .rankTrack{box-shadow:inset 0 1px 2px rgba(0,0,0,.5)}
+  .rankTrack>i{display:block;height:100%;border-radius:4px;
+    background:linear-gradient(90deg,#ffb861,var(--accent));
+    box-shadow:0 0 12px rgba(255,157,60,.5);
+    transition:width 700ms var(--ease)}
   .hubNext,.hubMeta{margin-top:7px;font:600 9.5px var(--mono);color:var(--dim);
     font-variant-numeric:tabular-nums}
 
@@ -238,7 +336,14 @@
   #resTitle.ok{color:var(--good)} #resTitle.bad{color:var(--bad)}
   #resSub{margin:8px 0 0;font:400 12px var(--sans);color:var(--dim)}
   #resStars{margin:14px 0 6px;font-size:20px;letter-spacing:9px;color:rgba(255,255,255,.14)}
-  #resStars i{font-style:normal} #resStars i.on{color:var(--accent)}
+  #resStars i{font-style:normal;display:inline-block}
+  #resStars i.on{color:var(--accent);text-shadow:0 0 18px rgba(255,157,60,.55);
+    animation:starIn var(--d3) var(--pop) backwards}
+  #resStars i.on:nth-child(1){animation-delay:120ms}
+  #resStars i.on:nth-child(2){animation-delay:260ms}
+  #resStars i.on:nth-child(3){animation-delay:400ms}
+  @keyframes starIn{from{opacity:0;transform:scale(.3) rotate(-25deg)}
+    to{opacity:1;transform:none}}
   #resStats{margin-top:10px;font-size:12px}
   #resStats div{display:flex;justify-content:space-between;padding:7px 0;
     border-bottom:1px solid var(--line)}
@@ -261,15 +366,19 @@
   .trk{margin-bottom:16px}
   .trk h4{margin:0 0 8px;font:700 10px var(--sans);letter-spacing:2.4px;color:var(--dim)}
   .rung{pointer-events:auto;display:grid;width:100%;text-align:left;
-    grid-template-columns:1fr auto;gap:3px 12px;padding:12px 14px;margin-bottom:8px;
-    border:1px solid var(--line);border-radius:12px;background:var(--panel-hi)}
+    grid-template-columns:1fr auto;gap:3px 12px;padding:13px 15px;margin-bottom:8px;
+    border:1px solid var(--line);border-radius:var(--r);
+    background:var(--sheen),var(--panel-hi);box-shadow:var(--lip);
+    transition:transform var(--d1) var(--ease),background var(--d1) linear,
+      border-color var(--d2) var(--ease),box-shadow var(--d2) var(--ease)}
   .rung .rn{font:700 12px var(--sans)}
   .rung .rc{font:700 11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
   .rung .rb{grid-column:1/-1;font:400 10.5px/1.6 var(--sans);color:var(--dim)}
   /* Affordable is the only state that gets to look like a button. */
-  .rung.can{border-color:var(--accent);background:rgba(255,157,60,.12)}
+  .rung.can{border-color:var(--accent);background:var(--sheen),rgba(255,157,60,.12);
+    box-shadow:var(--lip),0 0 24px rgba(255,157,60,.14)}
   .rung.can .rc{color:var(--accent)}
-  .rung.can:active{background:rgba(255,157,60,.28)}
+  .rung.can:active{background:rgba(255,157,60,.28);transform:scale(.985)}
   .rung.owned{opacity:.58}
   .rung.owned .rc{color:var(--good)}
   .rung.lock{opacity:.4}
@@ -290,8 +399,10 @@
   #boot h1{margin:0;font:800 clamp(22px,6vw,34px) var(--sans);letter-spacing:-.5px}
   #boot .s{margin:8px 0 22px;font:600 10px var(--sans);letter-spacing:3px;color:var(--dim)}
   #boot .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.10);overflow:hidden}
-  #boot .bar>i{display:block;height:100%;width:2%;border-radius:2px;background:var(--accent);
-    transition:width .18s ease}
+  #boot .bar{box-shadow:inset 0 1px 2px rgba(0,0,0,.5)}
+  #boot .bar>i{display:block;height:100%;width:2%;border-radius:2px;
+    background:linear-gradient(90deg,#ffb861,var(--accent));
+    box-shadow:0 0 12px rgba(255,157,60,.6);transition:width var(--d2) var(--ease)}
   #bootSay{margin-top:12px;font:600 10px var(--sans);color:var(--dim);white-space:pre}
   #term{margin-top:14px;white-space:pre;font:400 9px/1.6 var(--mono);
     color:rgba(255,255,255,.28);text-align:left}
