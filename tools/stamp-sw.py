@@ -16,7 +16,7 @@ ROOT = os.path.normpath(os.path.join(HERE, '..'))
 # The whole shipped game. There is no assets/ directory to walk: this build
 # loads no images, no fonts and no audio files — the sector, the hostiles, the
 # icons and the gunfire are all generated at runtime or at build time.
-files = ['index.html', 'sector.js', 'hostiles.js', 'thermal.js', 'game.js',
+files = ['index.html', 'career.js', 'sector.js', 'hostiles.js', 'thermal.js', 'game.js',
          'app.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-mask-512.png']
 
 h = hashlib.sha256()

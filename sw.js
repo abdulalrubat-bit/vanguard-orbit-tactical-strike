@@ -7,12 +7,13 @@
  * by hand it is a key someone forgets to bump, and a forgotten bump strands a
  * player on an old build with no way to know it.
  */
-const VERSION = 'd1f41d087211';
+const VERSION = '65d221b37272';
 const CACHE = 'vanguardorbit-' + VERSION;
 
 const SHELL = [
   './',
   'index.html',
+  'career.js',
   'sector.js',
   'hostiles.js',
   'thermal.js',

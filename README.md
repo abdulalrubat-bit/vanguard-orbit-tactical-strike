@@ -3,15 +3,19 @@
 Top-down gunship overwatch. You are a loitering asset above a city block,
 watching it through a thermal sensor, and callsign ANVIL is driving a ground
 element through the middle of it. ANVIL only moves while the road ahead is
-clear. Eight phase lines, three guns, one convoy — and the convoy is both the
-objective and the health bar.
+clear — and the convoy is both the objective and the health bar.
+
+You start with the aircraft's own 25mm and nothing else. Every sortie pays
+requisition, requisition buys the next piece of capability in the order a real
+programme would field it, and the opposition fields new problems as you climb.
 
 Hand-written, no engine. Offline once loaded, no accounts, no network calls,
-nothing leaving the device. Saves one best score and one audio toggle to
+nothing leaving the device. Saves one career file and one audio toggle to
 `localStorage` and nothing else.
 
 ```
 index.html     shell, HUD, overlays, all CSS
+career.js      the ladder: ranks, rungs, the save file, the roster gate
 sector.js      the city: road grid, blocks, buildings, route, walkability
 hostiles.js    the four hostiles — stats and thermal signatures
 thermal.js     the sensor grade: grain, scanlines, tear, vignette
@@ -85,23 +89,76 @@ eighteen segments wrapped around the aim stick rather than a smooth arc,
 because a smooth arc tells you how hot you are and segments tell you how many
 more bursts you have — which is the question actually being asked.
 
+## The ladder, and the rule that makes it playable
+
+Capability arrives in the order a real programme would field it, not in the
+order of a damage spreadsheet. You do not buy "+10% damage" — you get a better
+sensor head, then a second gun station, then a fuze for it. Twelve rungs across
+four tracks, and each one changes a decision rather than a number nobody sees.
+
+The rule that makes that work is the second one:
+
+> **The threat roster unlocks in step with the ladder.**
+
+A Phalanx cannot be killed without splash, so a Phalanx may not appear before
+the 40mm station is within reach. A jammer takes the automatic trigger away,
+which means nothing until the player has come to rely on it. Four lines of
+code, and they are the entire difficulty curve:
+
+```js
+const r = ['ghost'];
+if (tier >= 1) r.push('technical');
+if (tier >= 2) r.push('jammer');
+if (tier >= 3) r.push('phalanx');
+```
+
+Ranking up is therefore not "the numbers got bigger". It is a new problem
+arriving, and the means to solve it — deliberately in that order, so the first
+drum you ever meet is met with a gun that can just about handle it and a better
+answer already on the shelf.
+
+Rank is gated on **lifetime** requisition rather than the balance in hand, so
+spending never costs you a rank. A ladder that punishes you for climbing it is
+a ladder players learn to hoard against. The total cost of the ladder (41,600)
+and the top rank's gate (42,000) are the same number on purpose: the last rung
+and the last promotion arrive together.
+
+The first rung is priced at 800 against a clean first sortie's ~980, so the
+very first thing a player does after their first win is spend.
+
 ## Balance, and what the harness cannot see
 
 `tools/sim.mjs` runs whole missions with the renderer off, stepping the same
-update functions the real loop calls, under three policies:
+update functions the real loop calls, under three policies and at whichever
+rungs a player would plausibly own at that rank:
 
 ```
-PASSIVE   nobody shoots                  loses in ~1min, every seed
-ROOKIE    25mm only, 0.8s to react,      wins, mean integrity ~84
-          a third of its rounds thrown
-GUNNER    right gun, no waste, perfect   wins clean, ~3min
+PASSIVE   nobody shoots
+ROOKIE    25mm only, 0.8s to react, a third of its rounds thrown away
+GUNNER    right station every time, no waste, heat respected
+
+               passive        rookie                gunner
+  tier 0       lost, 1.2min   won 4/4, 100 integ    won 4/4, 100 integ
+  tier 1       lost, 1.2min   won 4/4, 100 integ    won 4/4, 100 integ
+  tier 3       lost, 1.1min   won 1/4,   2 integ    won 4/4, 100 integ
+  tier 5       lost, 0.9min   won 0/4,   0 integ    won 4/4,  81 integ
+  tier 6       lost, 0.8min   won 0/4,   0 integ    won 4/4,  99 integ
 ```
 
-It has already earned its keep twice. The convoy's own suppressive fire used to
-clear the entire first wave by itself, turning the tutorial into a cutscene.
-And hostiles used to spawn nine hundred metres out, which gave the player
-twenty uninterrupted seconds to shoot a wave in a queue — ROOKIE finished eight
-waves on full integrity before they were moved in.
+Read down the ROOKIE column: that is the ladder working. A 25mm-only pilot
+cruises the first two tiers, is pushed to the wire at tier 3, and cannot beat
+tier 5 at all — which is correct, because by tier 5 the sector is fielding
+Phalanxes and a 25mm cannot kill a drum from the front however well it is
+aimed. The sim is proving that hostile does its job.
+
+It has earned its keep four times now. The convoy's own suppressive fire used
+to clear the entire first wave by itself, turning the tutorial into a cutscene.
+Hostiles used to spawn nine hundred metres out, which gave the player twenty
+uninterrupted seconds to shoot a wave in a queue. A direct 40mm did not quite
+kill a technical, so the secondary detonation the weapon is sold on never
+fired. And it put mean sortie pay at about 1,800 REQ — at the first prices the
+entire ladder fell in twelve sorties, under an hour to exhaust everything the
+game has, so every cost and every rank gate was doubled.
 
 But read the ceiling honestly. GUNNER is omniscient: it always knows where
 every Ghost is, and the camera is wherever it needs to be on the same frame.
@@ -111,9 +168,28 @@ a player who has already solved acquisition wins cleanly, which is the right
 ceiling. The number worth watching is the gap between ROOKIE and PASSIVE.
 
 ```
-python3 -m http.server 8899          # from this directory
-npm install && node tools/sim.mjs    # from another
+python3 -m http.server 8899                      # from this directory
+npm install && node tools/sim.mjs                # from another
+SIM_TIERS=0,1,3,5,6 SIM_RUNS=4 node tools/sim.mjs
 ```
+
+There is one more blind spot worth naming, and it is tier 0's. A probationary
+operator's whole problem is that Ghosts are nearly invisible until they fire —
+and ROOKIE is handed their coordinates. The harness cannot measure the only
+difficulty that tier has.
+
+## What is not here yet
+
+`CAMPAIGN` in `game.js` is an empty array and a comment. Authored sectors drop
+into it and become the spine; `nextSortie()` already hands out `CAMPAIGN[n]`
+while one exists for this sortie number and falls through to a generated sector
+afterwards. The career underneath does not care which it got — the ladder, the
+payouts and the roster gating all read the same plan object either way, which
+is the whole reason that hook is two lines rather than a rewrite.
+
+Also absent: opt-in rewarded video (the studio's rule is a benefit you choose,
+never a gate), and the Android packaging, which by the Rivenmark precedent
+belongs in its own repo and is deployed into this one as a web build.
 
 ## The sensor is not a shader
 

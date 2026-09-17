@@ -89,8 +89,15 @@
      can see the 105 is cold without selecting it first. */
   #wepBar{position:fixed;z-index:4;left:50%;transform:translateX(-50%);
     bottom:calc(env(safe-area-inset-bottom) + 10px);display:flex;gap:6px}
-  .wep{pointer-events:auto;width:clamp(58px,15vw,78px);padding:7px 0 6px;
+  .wep{position:relative;pointer-events:auto;width:clamp(58px,15vw,78px);padding:7px 0 6px;
     border:1px solid var(--amber-d);background:rgba(8,12,16,.68);text-align:center}
+  /* A station that has not been requisitioned is shown, not hidden: the player
+     should be able to read the shape of the aircraft they are working towards
+     off the bottom bar from their very first sortie. */
+  .wep.locked{opacity:.42;border-style:dashed}
+  .wep.locked .u{visibility:hidden}
+  .wep.locked::after{content:'NOT FITTED';position:absolute;left:0;right:0;bottom:6px;
+    font-size:7px;letter-spacing:1.6px;color:rgba(255,176,30,.75)}
   .wep .n{font-size:clamp(13px,3.4vw,17px);letter-spacing:1px;line-height:1}
   .wep .u{font-size:7.5px;letter-spacing:2px;color:rgba(255,176,30,.55);margin-top:2px}
   .wep.on{border-color:var(--amber);background:rgba(255,176,30,.18);
@@ -113,9 +120,11 @@
   .overlay{position:fixed;inset:0;z-index:20;display:none;align-items:center;
     justify-content:center;background:rgba(3,5,8,.9);padding:20px}
   .overlay.show{display:flex}
-  .card{width:min(520px,92vw);border:1px solid var(--amber-d);
+  .card{width:min(520px,92vw);max-height:92vh;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;border:1px solid var(--amber-d);
     background:linear-gradient(rgba(12,18,24,.97),rgba(6,9,13,.97));padding:24px 22px 20px;
     position:relative}
+  .card.wide{width:min(760px,95vw)}
   /* Corner brackets, the same furniture the target boxes use. The interface
      should look like one system whether it is framing a panel or a hostile. */
   .card::before,.card::after{content:"";position:absolute;width:20px;height:20px;
@@ -132,7 +141,64 @@
   .card .go:active{background:var(--amber);color:#12100a}
   .row{display:flex;gap:8px;margin-top:10px}
   .row .btn{flex:1;text-align:center}
-  #menuBest{margin-top:10px;font-size:10px;letter-spacing:3px;color:rgba(255,176,30,.5)}
+  /* ---- Career hub -------------------------------------------------------
+     The same block on the menu and on the result screen, because a promotion
+     should be read in the place the player already learned to read rank. */
+  .hub{margin:16px 0 4px;border:1px solid rgba(255,176,30,.22);padding:11px 12px 10px;
+    background:rgba(255,176,30,.05)}
+  .hubTop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .hubTop span:first-child{font-size:clamp(12px,2.6vw,15px);letter-spacing:3px}
+  .hubTop span:last-child{font-size:11px;letter-spacing:2px;color:var(--amber)}
+  .hubTop .up{color:#8ef08e;animation:pulse 1s ease-in-out 3}
+  @keyframes pulse{50%{opacity:.4}}
+  .rankTrack{margin-top:8px;height:5px;border:1px solid rgba(255,176,30,.35);
+    background:rgba(255,176,30,.07);position:relative}
+  .rankTrack>i{position:absolute;inset:0 auto 0 0;display:block;background:var(--amber);
+    box-shadow:0 0 8px rgba(255,176,30,.5);transition:width .5s ease}
+  .hubNext,.hubMeta{margin-top:6px;font-size:9px;letter-spacing:2px;
+    color:rgba(255,176,30,.5)}
+  .btn.hot{border-color:var(--amber);background:rgba(255,176,30,.16);
+    box-shadow:0 0 12px rgba(255,176,30,.22)}
+
+  #resStats .tot{border-bottom:0;border-top:1px solid rgba(255,176,30,.4);
+    margin-top:4px;padding-top:7px}
+  #resStats .tot b{color:var(--amber)}
+  #resStats .tot span{font-size:14px}
+
+  /* ---- Requisition ------------------------------------------------------ */
+  #req{z-index:30}
+  /* The list is longer than any phone screen, so the two things a player needs
+     at all times — what they can spend and the way out — are pinned rather
+     than scrolled past. */
+  .reqHead{position:sticky;top:-24px;z-index:2;display:flex;justify-content:space-between;
+    align-items:flex-start;gap:12px;padding:24px 0 10px;margin-top:-24px;
+    background:linear-gradient(rgba(12,18,24,.99) 78%,rgba(12,18,24,0))}
+  #req .go{position:sticky;bottom:-20px;margin-bottom:0;
+    background:rgba(10,15,20,.97);backdrop-filter:blur(3px)}
+  #reqBal{font-size:13px;letter-spacing:2px;white-space:nowrap;border:1px solid var(--amber);
+    padding:6px 10px;background:rgba(255,176,30,.12)}
+  #reqList{margin-top:14px}
+  .trk{margin-bottom:14px}
+  .trk h4{margin:0 0 6px;font-size:9px;font-weight:400;letter-spacing:4px;
+    color:rgba(255,176,30,.5);border-bottom:1px solid rgba(255,176,30,.18);padding-bottom:4px}
+  .rung{pointer-events:auto;display:grid;width:100%;text-align:left;
+    grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;margin-bottom:6px;
+    border:1px solid rgba(255,176,30,.2);background:rgba(255,176,30,.03)}
+  .rung .rn{font-size:11px;letter-spacing:1.4px;color:var(--amber)}
+  .rung .rc{font-size:10px;letter-spacing:1.4px;color:rgba(255,176,30,.6);
+    text-align:right;white-space:nowrap}
+  .rung .rb{grid-column:1/-1;font-size:9.5px;line-height:1.6;
+    color:rgba(255,176,30,.45);letter-spacing:.3px}
+  /* Affordable is the only state that gets to look like a button. */
+  .rung.can{border-color:var(--amber);background:rgba(255,176,30,.11)}
+  .rung.can .rc{color:var(--amber)}
+  .rung.can:active{background:var(--amber)}
+  .rung.can:active .rn,.rung.can:active .rc,.rung.can:active .rb{color:#12100a}
+  .rung.owned{border-color:rgba(255,176,30,.45);opacity:.72}
+  .rung.owned .rc{color:#8ef08e}
+  .rung.lock{opacity:.4;border-style:dashed}
+  .rung.lock .rc{font-size:8.5px}
+  @media (max-width:620px){ .rung .rb{font-size:9px} }
   #btnSfx.off{color:rgba(255,176,30,.35);border-color:rgba(255,176,30,.2)}
 
   .brief{margin:16px 0 0;border-top:1px solid rgba(255,176,30,.2);padding-top:12px}
@@ -224,6 +290,10 @@
     driving a ground element through a hostile urban sector and will only move
     while the road ahead is clear. Everything you see is thermal: the streets
     are warm, the rooftops are cold, and the men in capes are neither.</p>
+    <p>You start with the aircraft's own 25mm and nothing else. Everything
+    beyond it — the second gun, the third, better optics, a better sensor head —
+    is requisitioned with what your sorties earn, and the opposition fields new
+    problems as you climb.</p>
     <div class="brief">
       <div><b>LEFT</b><span>Pan the observation window.</span></div>
       <div><b>RIGHT</b><span>Aim. Push past the inner ring and the gun fires.</span></div>
@@ -231,11 +301,17 @@
       <div><b>HEAT</b><span>The ring around the aim stick. Fill it and the barrel locks.</span></div>
       <div><b>DESKTOP</b><span>Mouse aims, click fires, WASD pans, 1/2/3 guns, Q zoom, R recentre.</span></div>
     </div>
+    <div class="hub">
+      <div class="hubTop"><span id="hubRank">PROBATIONARY</span><span id="hubReq">0 REQ</span></div>
+      <div class="rankTrack"><i id="hubBar"></i></div>
+      <div class="hubNext" id="hubNext"></div>
+      <div class="hubMeta" id="hubMeta"></div>
+    </div>
     <button class="go" id="menuPlay">GO ON STATION</button>
     <div class="row">
+      <button class="btn" id="menuReq">REQUISITION</button>
       <button class="btn" id="btnSfx">AUDIO ON</button>
     </div>
-    <div id="menuBest"></div>
   </div>
 </div>
 
@@ -256,10 +332,27 @@
     <p id="resSub"></p>
     <div id="resStars"></div>
     <div id="resStats"></div>
+    <div class="hub">
+      <div class="hubTop"><span id="resRank"></span></div>
+      <div class="rankTrack"><i id="resBar"></i></div>
+    </div>
     <div class="row">
-      <button class="btn" id="resAgain">NEW SECTOR</button>
+      <button class="btn" id="resReq">REQUISITION</button>
+      <button class="btn" id="resAgain">NEXT SORTIE</button>
       <button class="btn" id="resMenu">STAND DOWN</button>
     </div>
+  </div>
+</div>
+
+<!-- Requisition ---------------------------------------------------------- -->
+<div class="overlay" id="req">
+  <div class="card wide">
+    <div class="reqHead">
+      <h1>REQUISITION<small><span id="reqRank">PROBATIONARY</span></small></h1>
+      <span id="reqBal">0 REQ</span>
+    </div>
+    <div id="reqList"></div>
+    <button class="go" id="reqClose">CLOSE</button>
   </div>
 </div>
 
@@ -271,6 +364,7 @@
   <div id="bootSay">INITIALISING</div>
 </div></div>
 
+<script src="career.js"></script>
 <script src="sector.js"></script>
 <script src="hostiles.js"></script>
 <script src="thermal.js"></script>

@@ -20,6 +20,15 @@ const Hostiles = (() => {
 
   const grey = v => 'rgb(' + (v | 0) + ',' + (v | 0) + ',' + (v | 0) + ')';
 
+  /* Sensor gain, set from the career's ladder. It is added to the GHOST only,
+   * and that is not a gameplay fudge — a better-cooled head resolves a
+   * low-contrast signature that was previously sitting in the noise floor, and
+   * does nothing whatsoever for a redlined engine block that was already
+   * saturating the sensor. The one hostile built out of low contrast is the
+   * one a new sensor head changes. */
+  let GAIN = 0;
+  const setGain = n => { GAIN = n || 0; };
+
   /* Heat halo. Used for anything that should read as *emitting* rather than
    * merely being warm — engine blocks, muzzle flash, broadcast arrays. Drawn
    * with 'lighter' so overlapping sources stack the way real bloom does. */
@@ -55,12 +64,12 @@ const Hostiles = (() => {
       score: 10,
       draw(g, e, t) {
         const f = e.flare;                        // 0..1, 1 right after firing
-        const body = 42 + f * 172;
+        const body = 42 + GAIN + f * 172;
         g.save(); g.translate(e.x, e.y); g.rotate(e.face);
         if (f > 0.05) halo(g, 0, 0, 26 + f * 16, f * 0.5);
         // Cape first: a broad, cold, low-contrast smear that is most of the
         // silhouette and almost none of the signal.
-        g.fillStyle = grey(30 + f * 40);
+        g.fillStyle = grey(30 + GAIN * 0.8 + f * 40);
         g.beginPath(); g.ellipse(-2, 0, 11, 8, 0, 0, 7); g.fill();
         g.fillStyle = grey(body);
         g.beginPath(); g.ellipse(0, 0, 6.5, 4.6, 0, 0, 7); g.fill();
@@ -188,5 +197,5 @@ const Hostiles = (() => {
     return Math.abs(d) < k.arc;
   }
 
-  return { KINDS, shielded, halo, grey };
+  return { KINDS, shielded, halo, grey, setGain };
 })();

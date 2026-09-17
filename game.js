@@ -59,22 +59,78 @@ const WEAPONS = [
   }
 ];
 
-const ZOOMS = [1.0, 1.75, 3.0];
+// Filled from the career at the start of every sortie: GEN-2 OPTICS adds a
+// wide detent to find the fight with and a narrow one to identify from.
+let ZOOMS = [1.0, 1.75, 3.0];
 
-/* Eight phase lines, eight fights. The counts ramp, but the SHAPE of each
- * wave is what escalates: wave 1 is a target, wave 4 takes a weapon away,
- * wave 6 takes two away at once, and wave 8 is all four problems at the same
- * time on a convoy that has already been chewed on for six minutes. */
-const WAVES = [
-  { label: 'PROBE',         ghost: 5 },
-  { label: 'ROAD CONTACT',  ghost: 7,  technical: 1 },
-  { label: 'ELECTRONIC WARFARE', ghost: 6, jammer: 1, technical: 1 },
-  { label: 'HARDENED PUSH', ghost: 8,  phalanx: 1 },
-  { label: 'RAPID RESPONSE', ghost: 7, technical: 3 },
-  { label: 'COMBINED ARMS', ghost: 9,  jammer: 2, phalanx: 1 },
-  { label: 'BREAKTHROUGH',  ghost: 10, technical: 3, phalanx: 2 },
-  { label: 'LAST STAND',    ghost: 12, jammer: 2, technical: 4, phalanx: 3 }
+/* Wave archetypes. A sortie is built by walking this list, so a wave's SHAPE
+ * escalates rather than only its head count — and an archetype is only
+ * available once the career has unlocked every hostile in it. At the bottom of
+ * the ladder that leaves the first two, which is correct: a probationary
+ * operator's whole problem is finding men in capes.
+ *
+ * This is where authored campaign sectors will eventually override the
+ * generated ones. See CAMPAIGN below. */
+const ARCHETYPES = [
+  { label: 'PROBE',              ghost: 5 },
+  { label: 'DISMOUNTED SWEEP',   ghost: 8 },
+  { label: 'ROAD CONTACT',       ghost: 6,  technical: 1 },
+  { label: 'RAPID RESPONSE',     ghost: 6,  technical: 3 },
+  { label: 'ELECTRONIC WARFARE', ghost: 6,  jammer: 1, technical: 1 },
+  { label: 'HARDENED PUSH',      ghost: 7,  phalanx: 1 },
+  { label: 'COMBINED ARMS',      ghost: 8,  jammer: 2, phalanx: 1 },
+  { label: 'BREAKTHROUGH',       ghost: 9,  technical: 3, phalanx: 2 },
+  { label: 'LAST STAND',         ghost: 11, jammer: 2, technical: 4, phalanx: 3 }
 ];
+
+/* Authored sectors go here, and the day they do they become the campaign
+ * spine: `nextSortie` hands out CAMPAIGN[n] while one exists for this sortie
+ * number and falls through to a generated sector afterwards. The career
+ * underneath does not care which it got — the ladder, the payouts and the
+ * roster gating all read the same plan object either way, which is the whole
+ * reason this hook is two lines and not a rewrite. */
+const CAMPAIGN = [];
+
+function buildWaves(plan) {
+  const avail = ARCHETYPES.filter(a =>
+    Object.keys(a).every(k => k === 'label' || plan.roster.indexOf(k) >= 0));
+  const out = [];
+  for (let i = 0; i < plan.waves; i++) {
+    const src = avail[Math.min(avail.length - 1, Math.floor(i / plan.waves * avail.length))];
+    // Head count ramps across the sortie on top of the rank's own density, so
+    // the last phase line is always the hard one whatever tier it is flown at.
+    const ramp = plan.density * (0.78 + 0.46 * (i / Math.max(1, plan.waves - 1)));
+    const w = { label: src.label };
+    for (const k in src) if (k !== 'label') w[k] = Math.max(1, Math.round(src[k] * ramp));
+    out.push(w);
+  }
+  return out;
+}
+
+function nextSortie() {
+  const st = Career.state(), tier = Career.rankIndex();
+  const plan = Career.sortie(tier);
+  if (st.sorties < CAMPAIGN.length) return Object.assign(plan, CAMPAIGN[st.sorties]);
+  plan.seed = (20260917 + st.sorties * 7919 + Math.floor(Math.random() * 1e6)) | 0;
+  return plan;
+}
+
+/* The three stations with the career's modifiers folded in, rebuilt once per
+ * sortie. Every consumer reads S.wfx rather than WEAPONS, because the
+ * alternative — asking `Career.has('he40')` inside the splash maths — is how
+ * two rungs quietly cancel each other out and nobody notices for a month. */
+function effectiveWeapons(m) {
+  return WEAPONS.map((w, i) => {
+    const e = Object.assign({}, w);
+    e.spread *= m.spread;
+    e.heat *= m.heatPerShot;
+    e.cool *= m.coolRate;
+    if (i === 0) { e.rof *= m.rof25; e.spool *= m.spool25; e.heat *= m.heat25; }
+    if (i === 1) { e.splash *= m.splash40; e.splashDmg *= m.splashDmg40; }
+    if (i === 2) { e.splash *= m.splash105; }
+    return e;
+  });
+}
 
 const CONVOY_HP = 100;
 const CONVOY_SPEED = 46;          // world px/s while advancing
@@ -90,6 +146,7 @@ const S = {
   cam: { x: 0, y: 0, z: 1, zi: 0, zt: 1, panX: 0, panY: 0, toX: null, toY: null },
   cross: { x: 0, y: 0 },          // CSS px, screen space
   weapon: 0,
+  mod: null, wfx: null, plan: null, waves: null,
   heat: [0, 0, 0], locked: [false, false, false],
   spool: 0, nextShot: [0, 0, 0],
   firing: false, manual: false,
@@ -294,11 +351,20 @@ const Rail = (() => {
   // edge it ran straight into the heat gauge wrapped around the aim stick's
   // resting ring on any screen under about 420 tall — and the rail wins ties,
   // so reaching for the gun on a phone changed the magnification instead.
-  const geo = () => ({ x: W - 30, y0: H * 0.20, y1: H * 0.46 });
-  function hit(x, y) { const g = geo(); return x > g.x - 26 && y > g.y0 - 22 && y < g.y1 + 22; }
+  // Grows upward when GEN-2 OPTICS adds detents, rather than downward, because
+  // downward is where the aim stick's heat gauge lives.
+  const geo = () => ({
+    x: W - 30,
+    y0: H * (ZOOMS.length > 3 ? 0.14 : 0.20),
+    y1: H * 0.46
+  });
+  function hit(x, y) { const g = geo(); return x > g.x - 22 && y > g.y0 - 22 && y < g.y1 + 22; }
   function pick(y) {
-    const g = geo(), t = (y - g.y0) / (g.y1 - g.y0);
-    setZoom(Math.max(0, Math.min(2, Math.round((1 - t) * 2))));
+    const g = geo(), t = (y - g.y0) / (g.y1 - g.y0), last = ZOOMS.length - 1;
+    // Detent count comes from ZOOMS, never from a literal. Hardcoded to two
+    // here and in the renderer, the two magnifications GEN-2 OPTICS buys were
+    // drawn off the end of the rail and could not be selected on it at all.
+    setZoom(Math.max(0, Math.min(last, Math.round((1 - t) * last))));
   }
   return {
     hit, geo,
@@ -309,6 +375,7 @@ const Rail = (() => {
 })();
 
 function setZoom(i) {
+  i = Math.max(0, Math.min(ZOOMS.length - 1, i));
   if (i === S.cam.zi) return;
   S.cam.zi = i; S.cam.zt = ZOOMS[i];
   UI.flash('OPTICAL ' + ZOOMS[i].toFixed(2) + 'X');
@@ -384,6 +451,14 @@ function bindInput() {
 
 function selectWeapon(i) {
   if (i === S.weapon) return;
+  // A station that has not been requisitioned is not a station. Saying so out
+  // loud is the point: the player should learn what is on the shelf from the
+  // moment they first want it, not from the requisition screen.
+  if (S.mod && !S.mod.stations[i]) {
+    UI.flash(WEAPONS[i].name + ' — STATION NOT FITTED');
+    Audio.overheat();
+    return;
+  }
   S.weapon = i; S.spool = 0;
   UI.weapon(i);
   UI.flash(WEAPONS[i].name + ' SELECTED');
@@ -391,14 +466,25 @@ function selectWeapon(i) {
 
 /* ============================================================== mission === */
 
-function startMission(seed) {
+function startMission(seed, plan) {
+  S.plan = plan || nextSortie();
+  if (seed === undefined || seed === null) seed = S.plan.seed;
+  S.mod = Career.mods();
+  S.wfx = effectiveWeapons(S.mod);
+  S.waves = buildWaves(S.plan);
+  ZOOMS = S.mod.zooms.slice();
+  Hostiles.setGain(S.mod.ghostLum);
+
   S.sector = Sector.generate(seed);
   S.sector.line = densify(S.sector.route, 18);
   const total = S.sector.line.total;
 
-  // Phase lines. The last wave deliberately lands well short of the exit, so
-  // the run out to extraction is a lap of honour rather than a coin flip.
-  S.lineD = [0.05, 0.17, 0.29, 0.40, 0.51, 0.63, 0.75, 0.86].map(f => total * f);
+  // Phase lines, spread evenly however many waves this rank flies. The last
+  // one deliberately lands well short of the exit, so the run out to
+  // extraction is a lap of honour rather than a coin flip.
+  const n = S.waves.length;
+  S.lineD = [];
+  for (let i = 0; i < n; i++) S.lineD.push(total * (0.05 + 0.81 * (i / Math.max(1, n - 1))));
 
   S.convoy = {
     d: 0, hp: CONVOY_HP, halted: false, hurt: 0,
@@ -409,6 +495,9 @@ function startMission(seed) {
   S.heat = [0, 0, 0]; S.locked = [false, false, false]; S.nextShot = [0, 0, 0];
   S.jam = 0; S.jammed = false; S.shake = 0; S.spool = 0;
   S.score = 0; S.kills = 0; S.shots = 0; S.hits = 0; S.elapsed = 0;
+  // Always open on the 25mm: it is the only station that is always fitted,
+  // and a sortie that starts on a gun you sold back is a sortie that starts
+  // with a dead trigger.
   S.weapon = 0; S.t = 0;
 
   const p = atDist(S.sector.line, 0);
@@ -419,14 +508,16 @@ function startMission(seed) {
   S.cross.x = W / 2; S.cross.y = H / 2;
   S.phase = 'play';
   document.body.classList.add('playing');
+  UI.stations(S.mod.stations);
   UI.weapon(0);
-  UI.flash('VANGUARD ON STATION — SECTOR ' + (seed % 97).toString().padStart(2, '0'));
+  UI.flash('VANGUARD ON STATION — SECTOR ' +
+    (Math.abs(seed) % 97).toString().padStart(2, '0') + '  //  ' + Career.rank().n);
 }
 
 /* --------------------------------------------------------------- waves --- */
 
 function beginWave(i) {
-  const w = WAVES[i];
+  const w = S.waves[i];
   S.waveActive = true; S.waveT = 0; S.queue.length = 0;
   let at = 0;
   const push = (kind, n, gap) => {
@@ -474,8 +565,11 @@ function nearRoad(x, y, tol) {
 
 function spawn(kind) {
   const k = Hostiles.KINDS[kind], p = spawnPoint(kind);
+  // Health creeps with rank rather than leaping. The interesting escalation is
+  // which hostiles are allowed to turn up, not how many rounds each one eats.
+  const hp = Math.round(k.hp * S.plan.hp);
   S.hostiles.push({
-    kind, x: p.x, y: p.y, hp: k.hp, max: k.hp, face: 0,
+    kind, x: p.x, y: p.y, hp, max: hp, face: 0,
     flare: 0, cool: Math.random() * k.cadence, vx: 0, vy: 0, tag: 0, hitT: 0
   });
 }
@@ -540,10 +634,15 @@ function updateHostiles(dt) {
 
     // Tagging. A Ghost is only tagged while its signature is up or while the
     // crosshair is close enough to be a deliberate look — which is exactly the
-    // fight the cape is supposed to create.
+    // fight the cape is supposed to create. The FLIR-5 head widens that look;
+    // TRACK MEMORY holds the tag for a few seconds after the sensor drops it,
+    // so a Ghost that stops firing stops being invisible rather than stopping
+    // existing.
     const cw = { x: toWorldX(S.cross.x), y: toWorldY(S.cross.y) };
     const look = Math.hypot(e.x - cw.x, e.y - cw.y);
-    const seen = e.kind === 'ghost' ? (e.flare > 0.12 || look < 190) : true;
+    const live = e.kind === 'ghost' ? (e.flare > 0.12 || look < S.mod.tagRadius) : true;
+    if (live) e.tagT = S.mod.tagHold; else e.tagT = Math.max(0, (e.tagT || 0) - dt);
+    const seen = live || e.tagT > 0;
     e.tag = seen && onScreen(e.x, e.y, 60) ? Math.min(1, e.tag + dt * 6) : Math.max(0, e.tag - dt * 3);
   }
 }
@@ -567,12 +666,19 @@ function updateConvoy(dt) {
   // That is what makes this an overwatch game rather than an escort: the
   // player is not keeping up with anything, the player is buying permission
   // for the next two hundred metres.
-  if (!S.waveActive && S.wave < WAVES.length && c.d >= S.lineD[S.wave]) {
+  if (!S.waveActive && S.wave < S.waves.length && c.d >= S.lineD[S.wave]) {
     beginWave(S.wave);
   }
   c.halted = S.waveActive;
   if (!c.halted) {
     c.d = Math.min(total, c.d + CONVOY_SPEED * dt);
+    // The medical team works between phase lines and never under contact. A
+    // regen that ticks during a wave turns every fight into a stalemate the
+    // player can wait out.
+    if (S.mod.regen && c.hp < CONVOY_HP) {
+      c.hp = Math.min(CONVOY_HP, c.hp + S.mod.regen * dt);
+      UI.integrity(c.hp);
+    }
     if (c.d >= total) { finish(true); return; }
   }
 
@@ -584,7 +690,7 @@ function updateConvoy(dt) {
     u.cool -= dt;
     if (u.cool > 0) continue;
     const p = atDist(S.sector.line, Math.max(0, c.d + u.off));
-    let best = null, bd = 160;
+    let best = null, bd = 160 * S.mod.convoyRange;
     for (const e of S.hostiles) {
       const d = Math.hypot(e.x - p.x, e.y - p.y);
       if (d < bd && !S.sector.blocked(p.x, p.y, e.x, e.y)) { bd = d; best = e; }
@@ -592,7 +698,7 @@ function updateConvoy(dt) {
     if (best) {
       u.cool = 1.35;
       S.tracers.push({ x: p.x, y: p.y, tx: best.x, ty: best.y, t: 0.09, friendly: true });
-      hit(best, 8, Math.atan2(best.y - p.y, best.x - p.x), false, 'ally');
+      hit(best, 8 * S.mod.convoyDmg, Math.atan2(best.y - p.y, best.x - p.x), false, 'ally');
     } else u.cool = 0.4;
   }
 }
@@ -600,14 +706,14 @@ function updateConvoy(dt) {
 /* -------------------------------------------------------------- gunnery --- */
 
 function fireControl(dt) {
-  const wi = S.weapon, w = WEAPONS[wi];
+  const wi = S.weapon, w = S.wfx[wi];
 
   // Cooling runs on every barrel, not just the selected one, which is what
   // makes switching weapons a real option rather than a menu.
   for (let i = 0; i < WEAPONS.length; i++) {
     if (i === wi && S.firing) continue;
-    S.heat[i] = Math.max(0, S.heat[i] - WEAPONS[i].cool * dt);
-    if (S.locked[i] && S.heat[i] < WEAPONS[i].lockCool) {
+    S.heat[i] = Math.max(0, S.heat[i] - S.wfx[i].cool * dt);
+    if (S.locked[i] && S.heat[i] < S.wfx[i].lockCool) {
       S.locked[i] = false;
       if (i === wi) UI.flash('BARREL CLEAR');
     }
@@ -643,7 +749,7 @@ function fireControl(dt) {
 }
 
 function shoot(wi) {
-  const w = WEAPONS[wi];
+  const w = S.wfx[wi];
   S.shots++;
   S.heat[wi] = Math.min(1, S.heat[wi] + w.heat);
   if (S.heat[wi] >= 1) {
@@ -666,7 +772,7 @@ function shoot(wi) {
 }
 
 function land(wi, x, y) {
-  const w = WEAPONS[wi];
+  const w = S.wfx[wi];
 
   // A round that arrives on a roof stops at the roof. The hostiles are in the
   // street; the buildings are not cover they can hide inside, they are cover
@@ -818,7 +924,7 @@ function updateWave(dt) {
     S.score += bonus;
     UI.flash('SECTOR CLEAR — ANVIL ADVANCING  +' + bonus);
     Audio.clear();
-    UI.wave(S.wave, S.wave < WAVES.length ? 'MOVING' : 'EXFIL');
+    UI.wave(S.wave, S.wave < S.waves.length ? 'MOVING' : 'EXFIL');
   }
 }
 
@@ -1096,7 +1202,7 @@ function drawInbound(g) {
 
 function drawReticle(g) {
   const x = S.cross.x, y = S.cross.y;
-  const w = WEAPONS[S.weapon];
+  const w = S.wfx[S.weapon];
   const hot = S.locked[S.weapon];
   g.save();
   g.strokeStyle = hot ? '#ff3b2f' : AMBER;
@@ -1199,8 +1305,9 @@ function drawRail(g) {
   g.beginPath(); g.moveTo(geo.x, geo.y0); g.lineTo(geo.x, geo.y1); g.stroke();
   g.font = '700 9px ui-monospace,Menlo,Consolas,monospace';
   g.textAlign = 'right';
+  const last = Math.max(1, ZOOMS.length - 1);
   for (let i = 0; i < ZOOMS.length; i++) {
-    const y = geo.y1 - (i / 2) * (geo.y1 - geo.y0);
+    const y = geo.y1 - (i / last) * (geo.y1 - geo.y0);
     const on = i === S.cam.zi;
     g.strokeStyle = on ? AMBER : AMBER_F + '0.5)';
     g.lineWidth = on ? 2.4 : 1.2;
@@ -1324,7 +1431,8 @@ const UI = (() => {
   }
 
   function wave(n, label) {
-    $('waveN').textContent = 'PHASE ' + Math.min(n, WAVES.length) + '/' + WAVES.length;
+    const tot = S.waves ? S.waves.length : 8;
+    $('waveN').textContent = 'PHASE ' + Math.min(n, tot) + '/' + tot;
     $('waveL').textContent = label;
   }
 
@@ -1334,12 +1442,31 @@ const UI = (() => {
 
   function jam(v) { $('jamBadge').classList.toggle('on', v); }
 
+  /* What the sortie was worth. Integrity dominates on purpose — it is the
+   * only term the mission was ever about, and a wasteful run that hands back a
+   * convoy has to out-earn a surgical one that hands back a wreck. Losing
+   * still pays: a career game that zeroes a bad night teaches players to quit
+   * to the menu the moment a run goes wrong, which is the opposite of the
+   * behaviour a ladder wants. */
+  function payout(won) {
+    const acc = S.shots ? S.hits / S.shots : 0;
+    const parts = [
+      ['CONVOY INTEGRITY', Math.round(S.convoy.hp * 3)],
+      ['HOSTILES NEUTRALISED', S.kills * 5],
+      ['PHASE LINES HELD', Math.min(S.wave, S.waves.length) * 35],
+      ['EXTRACTION BONUS', won ? 200 : 0],
+      ['EFFECTS ON TARGET', acc > 0.6 ? 70 : 0]
+    ];
+    const base = parts.reduce((a, b) => a + b[1], 0);
+    return { parts, base, mult: S.plan.pay, total: Math.round(base * S.plan.pay) };
+  }
+
   function stats() {
     const acc = S.shots ? (S.hits / S.shots * 100) : 0;
     const m = Math.floor(S.elapsed / 60), s = Math.floor(S.elapsed % 60);
     return [
       ['CONVOY INTEGRITY', Math.ceil(S.convoy.hp) + ' / ' + CONVOY_HP],
-      ['PHASE LINES HELD', Math.min(S.wave, WAVES.length) + ' / ' + WAVES.length],
+      ['PHASE LINES HELD', Math.min(S.wave, S.waves.length) + ' / ' + S.waves.length],
       ['HOSTILES NEUTRALISED', S.kills],
       ['ROUNDS EXPENDED', S.shots],
       ['EFFECTS ON TARGET', acc.toFixed(0) + '%'],
@@ -1349,40 +1476,104 @@ const UI = (() => {
   }
 
   function result(won) {
-    // Integrity is the grade, because integrity is the only thing the mission
-    // was ever about. A perfect-accuracy run that hands back a wreck is worse
-    // than a wasteful one that hands back a convoy.
     const pct = S.convoy.hp / CONVOY_HP;
     const stars = !won ? 0 : pct > 0.8 ? 3 : pct > 0.5 ? 2 : 1;
     S.score += Math.round(S.convoy.hp * 12) + (won ? 800 : 0);
+
+    const pay = payout(won);
+    const before = Career.rank().n;
+    Career.award(pay.total);
+    Career.recordScore(S.score);
+    const after = Career.rank().n;
+
     $('resTitle').textContent = won ? 'ANVIL IS CLEAR' : 'ANVIL IS LOST';
     $('resTitle').className = won ? 'ok' : 'bad';
     $('resSub').textContent = won
       ? 'Ground element reached the extraction point.'
       : 'The ground element was destroyed in sector.';
     $('resStars').innerHTML = [0, 1, 2].map(i =>
-      '<i class="' + (i < stars ? 'on' : '') + '">◆</i>').join('');
-    $('resStats').innerHTML = stats().map(r =>
-      '<div><b>' + r[0] + '</b><span>' + r[1] + '</span></div>').join('');
-    saveBest(stars);
+      '<i class="' + (i < stars ? 'on' : '') + '">\u25C6</i>').join('');
+
+    const rows = pay.parts.map(r =>
+      '<div><b>' + r[0] + '</b><span>' + r[1] + '</span></div>').join('')
+      + (pay.mult > 1.001
+        ? '<div><b>TIER MULTIPLIER</b><span>\u00D7' + pay.mult.toFixed(2) + '</span></div>'
+        : '')
+      + '<div class="tot"><b>REQUISITION EARNED</b><span>' + pay.total + '</span></div>';
+    $('resStats').innerHTML = rows;
+
+    // A promotion is the one thing on this screen worth interrupting for.
+    $('resRank').textContent = (after !== before) ? 'PROMOTED \u2014 ' + after : after;
+    $('resRank').classList.toggle('up', after !== before);
+    paintRankBar($('resBar'));
+    hub();
     $('result').classList.add('show');
   }
 
-  function saveBest(stars) {
-    try {
-      const prev = JSON.parse(localStorage.getItem('vanguard.best') || 'null');
-      if (!prev || S.score > prev.score) {
-        localStorage.setItem('vanguard.best', JSON.stringify({ score: S.score, stars }));
-      }
-    } catch (e) {}
-    showBest();
+  /* --------------------------------------------------------- the hub ------ */
+
+  function paintRankBar(el) {
+    const st = Career.state(), r = Career.rank(), nx = Career.nextRank();
+    const f = nx ? (st.lifetime - r.at) / (nx.at - r.at) : 1;
+    el.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(1) + '%';
   }
 
-  function showBest() {
-    let b = null;
-    try { b = JSON.parse(localStorage.getItem('vanguard.best') || 'null'); } catch (e) {}
-    $('menuBest').textContent = b ? 'BEST  ' + b.score : '';
+  function hub() {
+    const st = Career.state();
+    $('hubRank').textContent = Career.rank().n;
+    $('hubReq').textContent = st.req + ' REQ';
+    const nx = Career.nextRank();
+    $('hubNext').textContent = nx ? (nx.at - st.lifetime) + ' TO ' + nx.n : 'TOP OF THE LADDER';
+    paintRankBar($('hubBar'));
+    $('hubMeta').textContent = 'SORTIES ' + st.sorties +
+      (st.bestScore ? '   \u00B7   BEST ' + st.bestScore : '');
+    // The requisition button is highlighted only when something on the shelf is
+    // actually affordable, so it never nags at an empty wallet.
+    const any = Career.RUNGS.some(r2 => Career.canBuy(r2));
+    $('menuReq').classList.toggle('hot', any);
+    $('resReq').classList.toggle('hot', any);
   }
+
+  /* Stations that have not been requisitioned are shown, not hidden. A player
+   * should be able to see the shape of the aircraft they are working towards
+   * from the very first sortie. */
+  function stations(on) {
+    [...document.querySelectorAll('.wep')].forEach((b, i) =>
+      b.classList.toggle('locked', !on[i]));
+  }
+
+  /* ------------------------------------------------------ requisition ----- */
+
+  function paintReq() {
+    const st = Career.state();
+    $('reqBal').textContent = st.req + ' REQ';
+    $('reqRank').textContent = Career.rank().n;
+    $('reqList').innerHTML = Career.TRACKS.map(track => {
+      const rows = Career.RUNGS.filter(r => r.track === track).map(r => {
+        const owned = Career.has(r.id), lock = Career.locked(r), can = Career.canBuy(r);
+        const cls = owned ? 'owned' : lock ? 'lock' : can ? 'can' : '';
+        const tag = owned ? 'FITTED'
+          : lock ? 'NEEDS ' + Career.RUNGS.find(x => x.id === r.need).name
+          : r.cost + ' REQ';
+        return '<button class="rung ' + cls + '" data-id="' + r.id + '"' +
+          (can ? '' : ' disabled') + '>' +
+          '<span class="rn">' + r.name + '</span>' +
+          '<span class="rc">' + tag + '</span>' +
+          '<span class="rb">' + r.blurb + '</span></button>';
+      }).join('');
+      return '<div class="trk"><h4>' + track + '</h4>' + rows + '</div>';
+    }).join('');
+    [...$('reqList').querySelectorAll('.rung')].forEach(b => {
+      b.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        Audio.wake();
+        if (Career.buy(b.dataset.id)) { Audio.clear(); paintReq(); hub(); }
+      });
+    });
+  }
+
+  function openReq() { paintReq(); $('req').classList.add('show'); }
+  function closeReq() { $('req').classList.remove('show'); }
 
   function togglePause() {
     if (S.phase !== 'play') return;
@@ -1391,7 +1582,8 @@ const UI = (() => {
   }
   const isPaused = () => paused;
 
-  return { flash, integrity, wave, weapon, jam, result, togglePause, isPaused, term, showBest, $ };
+  return { flash, integrity, wave, weapon, jam, result, togglePause, isPaused, term,
+           hub, stations, openReq, closeReq, payout, $ };
 })();
 
 /* ================================================================== loop === */
@@ -1442,6 +1634,7 @@ function boot() {
   resize();
   bindInput();
   Audio.load();
+  Career.load();
 
   const lines = [
     'VANGUARD ORBIT // TACTICAL STRIKE',
@@ -1460,7 +1653,7 @@ function boot() {
     else setTimeout(() => {
       UI.$('boot').classList.add('out');
       UI.$('menu').classList.add('show');
-      UI.showBest();
+      UI.hub();
       S.phase = 'menu';
     }, 320);
   };
@@ -1480,13 +1673,17 @@ function wireButtons() {
     el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); Audio.wake(); fn(e); });
   };
 
-  tap($('menuPlay'), () => {
+  // One launcher for both entry points. The sortie itself is chosen by
+  // nextSortie(), which is where the authored campaign will take over.
+  const launch = () => {
     $('menu').classList.remove('show');
     $('result').classList.remove('show');
-    startMission(20260917 + Math.floor(Math.random() * 1000));
+    $('req').classList.remove('show');
+    startMission();
     UI.integrity(CONVOY_HP);
     UI.wave(1, 'MOVING TO PHASE LINE');
-  });
+  };
+  tap($('menuPlay'), launch);
 
   [...document.querySelectorAll('.wep')].forEach((b, i) => tap(b, () => selectWeapon(i)));
   tap($('btnRecenter'), recenter);
@@ -1498,12 +1695,10 @@ function wireButtons() {
     document.body.classList.remove('playing');
     $('menu').classList.add('show');
   });
-  tap($('resAgain'), () => {
-    $('result').classList.remove('show');
-    startMission(20260917 + Math.floor(Math.random() * 1000));
-    UI.integrity(CONVOY_HP);
-    UI.wave(1, 'MOVING TO PHASE LINE');
-  });
+  tap($('resAgain'), launch);
+  tap($('menuReq'), () => UI.openReq());
+  tap($('resReq'), () => UI.openReq());
+  tap($('reqClose'), () => UI.closeReq());
   tap($('resMenu'), () => {
     $('result').classList.remove('show');
     $('menu').classList.add('show');
