@@ -1,0 +1,277 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Vanguard Orbit: Tactical Strike</title>
+<meta name="description" content="Top-down gunship overwatch. Hold a thermal sensor over a convoy fighting through a hostile urban sector.">
+<meta name="theme-color" content="#05070a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vanguard Orbit">
+<link rel="manifest" href="app.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  /* The palette is two colours and a rule. The sensor image is monochrome and
+     is drawn on canvas; every pixel of interface is amber and is drawn here or
+     on the HUD canvas. Nothing in this stylesheet may tint the sensor, and
+     nothing in the world layer may be amber. That one separation is the whole
+     look, and it is also why the HUD reads at all over a grey image. */
+  :root{
+    --amber:#ffb01e; --amber-d:#b4740c; --amber-f:rgba(255,176,30,.14);
+    --red:#ff3b2f; --ink:#05070a; --panel:rgba(8,12,16,.86);
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,'Roboto Mono','DejaVu Sans Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--ink);
+    touch-action:none;-webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;font-family:var(--mono);color:var(--amber)}
+  canvas{position:fixed;inset:0;display:block;width:100%;height:100%}
+  #world{z-index:1}
+  #hud{z-index:2;pointer-events:none}
+
+  /* The input surface. One transparent layer over both canvases that owns
+     every pointer event in the game, so the sticks never have to ask which
+     canvas a touch landed on. Buttons sit ABOVE it and therefore never leak
+     a touch down into the aim stick. */
+  #surface{position:fixed;inset:0;z-index:3;touch-action:none}
+
+  .ui{position:fixed;z-index:4;pointer-events:none}
+  button{font:inherit;border:0;background:transparent;color:inherit;padding:0;
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation}
+
+  /* ---- Top bar --------------------------------------------------------- */
+  #top{top:0;left:0;right:0;padding:calc(env(safe-area-inset-top) + 8px) 14px 0;
+    display:flex;gap:12px;align-items:flex-start}
+  #term{white-space:pre;font-size:9.5px;line-height:1.5;color:rgba(255,176,30,.5);
+    letter-spacing:.4px;max-width:44vw;overflow:hidden;text-shadow:0 0 6px rgba(255,176,30,.25)}
+  #mission{flex:1;display:flex;flex-direction:column;align-items:center;min-width:0}
+  #waveN{font-size:11px;letter-spacing:3px;color:var(--amber)}
+  #waveL{font-size:9px;letter-spacing:2px;color:rgba(255,176,30,.6);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+  #intWrap{margin-top:6px;width:min(300px,44vw);display:flex;align-items:center;gap:7px}
+  #intTrack{flex:1;height:7px;border:1px solid rgba(255,176,30,.45);position:relative;
+    background:rgba(255,176,30,.08)}
+  #intBar{position:absolute;inset:1px auto 1px 1px;width:100%;background:var(--amber);
+    transition:width .18s linear;box-shadow:0 0 8px rgba(255,176,30,.5)}
+  #intVal{font-size:10px;letter-spacing:1px;min-width:26px;text-align:right}
+  #intWrap.crit #intBar{background:var(--red);box-shadow:0 0 9px rgba(255,59,47,.6)}
+  #intWrap.crit #intVal{color:var(--red)}
+  #intLbl{font-size:8.5px;letter-spacing:2px;color:rgba(255,176,30,.55)}
+
+  #jamBadge{position:fixed;z-index:4;top:calc(env(safe-area-inset-top) + 58px);left:50%;
+    transform:translateX(-50%);font-size:10px;letter-spacing:3px;color:var(--red);
+    border:1px solid var(--red);padding:3px 9px;opacity:0;pointer-events:none;
+    background:rgba(40,0,0,.5);transition:opacity .15s}
+  #jamBadge.on{opacity:1;animation:jflick .28s steps(2,end) infinite}
+  @keyframes jflick{50%{opacity:.35}}
+
+  /* ---- Flash line ------------------------------------------------------ */
+  #flash{position:fixed;z-index:4;left:0;right:0;top:34%;text-align:center;
+    font-size:clamp(11px,2.6vw,15px);letter-spacing:3px;color:var(--amber);
+    text-shadow:0 0 12px rgba(255,176,30,.6);opacity:0;pointer-events:none;padding:0 16px}
+  #flash.go{animation:fl 2.2s ease-out forwards}
+  @keyframes fl{0%{opacity:0;transform:translateY(6px)}12%{opacity:1;transform:none}
+    70%{opacity:1}100%{opacity:0}}
+
+  /* ---- Controls -------------------------------------------------------- */
+  .btn{pointer-events:auto;border:1px solid var(--amber-d);background:rgba(8,12,16,.6);
+    color:var(--amber);letter-spacing:2px;font-size:10px;padding:9px 11px;
+    backdrop-filter:blur(2px)}
+  .btn:active{background:var(--amber);color:#12100a}
+
+  #topRight{position:fixed;z-index:4;top:calc(env(safe-area-inset-top) + 8px);
+    right:calc(env(safe-area-inset-right) + 106px);display:flex;gap:7px}
+
+  /* Weapon selector. Bottom centre, because it is the only control that both
+     thumbs have an equal claim on and the only one worth taking a thumb off a
+     stick for. The heat pip under each is the barrel's own heat, so a player
+     can see the 105 is cold without selecting it first. */
+  #wepBar{position:fixed;z-index:4;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom) + 10px);display:flex;gap:6px}
+  .wep{pointer-events:auto;width:clamp(58px,15vw,78px);padding:7px 0 6px;
+    border:1px solid var(--amber-d);background:rgba(8,12,16,.68);text-align:center}
+  .wep .n{font-size:clamp(13px,3.4vw,17px);letter-spacing:1px;line-height:1}
+  .wep .u{font-size:7.5px;letter-spacing:2px;color:rgba(255,176,30,.55);margin-top:2px}
+  .wep.on{border-color:var(--amber);background:rgba(255,176,30,.18);
+    box-shadow:0 0 12px rgba(255,176,30,.3) inset}
+  .wep:active{background:rgba(255,176,30,.3)}
+
+  /* The manual trigger lives IN the bottom bar rather than under the aiming
+     thumb. Put in the bottom-right corner — the obvious place for a fire
+     button — it sat exactly where the aim stick's resting ring is, and every
+     reach for it deflected the gun on the way past. Here either thumb can
+     take it, at the cost of letting go of a stick, which is the right price
+     for a control that only exists because the aim stick has been jammed. */
+  #btnTrigger{pointer-events:auto;width:clamp(66px,17vw,92px);padding:9px 0 8px;
+    border:1px solid var(--amber-d);background:rgba(8,12,16,.68);text-align:center;
+    font-size:11px;letter-spacing:3px;color:var(--amber);margin-right:8px}
+  #btnTrigger.on{background:var(--amber);color:#12100a;border-color:var(--amber);
+    box-shadow:0 0 16px rgba(255,176,30,.45)}
+
+  /* ---- Overlays -------------------------------------------------------- */
+  .overlay{position:fixed;inset:0;z-index:20;display:none;align-items:center;
+    justify-content:center;background:rgba(3,5,8,.9);padding:20px}
+  .overlay.show{display:flex}
+  .card{width:min(520px,92vw);border:1px solid var(--amber-d);
+    background:linear-gradient(rgba(12,18,24,.97),rgba(6,9,13,.97));padding:24px 22px 20px;
+    position:relative}
+  /* Corner brackets, the same furniture the target boxes use. The interface
+     should look like one system whether it is framing a panel or a hostile. */
+  .card::before,.card::after{content:"";position:absolute;width:20px;height:20px;
+    border:2px solid var(--amber);pointer-events:none}
+  .card::before{left:-1px;top:-1px;border-right:0;border-bottom:0}
+  .card::after{right:-1px;bottom:-1px;border-left:0;border-top:0}
+  .card h1{margin:0;font-size:clamp(22px,6vw,36px);letter-spacing:5px;line-height:1.05;
+    text-shadow:0 0 18px rgba(255,176,30,.45)}
+  .card h1 small{display:block;font-size:clamp(9px,2.2vw,12px);letter-spacing:4px;
+    color:rgba(255,176,30,.55);margin-top:8px;text-shadow:none}
+  .card p{font-size:11px;line-height:1.75;color:rgba(255,176,30,.62);letter-spacing:.6px}
+  .card .go{display:block;width:100%;margin-top:18px;padding:14px;border:1px solid var(--amber);
+    background:rgba(255,176,30,.14);letter-spacing:5px;font-size:13px}
+  .card .go:active{background:var(--amber);color:#12100a}
+  .row{display:flex;gap:8px;margin-top:10px}
+  .row .btn{flex:1;text-align:center}
+  #menuBest{margin-top:10px;font-size:10px;letter-spacing:3px;color:rgba(255,176,30,.5)}
+  #btnSfx.off{color:rgba(255,176,30,.35);border-color:rgba(255,176,30,.2)}
+
+  .brief{margin:16px 0 0;border-top:1px solid rgba(255,176,30,.2);padding-top:12px}
+  .brief div{display:flex;gap:9px;font-size:10px;line-height:1.7;
+    color:rgba(255,176,30,.6);letter-spacing:.5px}
+  .brief b{color:var(--amber);min-width:76px;letter-spacing:1px;font-weight:400}
+
+  #resTitle{margin:0;font-size:clamp(20px,5.4vw,32px);letter-spacing:5px}
+  #resTitle.ok{color:var(--amber)} #resTitle.bad{color:var(--red)}
+  #resSub{font-size:10.5px;color:rgba(255,176,30,.55);margin:8px 0 0;letter-spacing:.6px}
+  #resStars{margin:12px 0 4px;font-size:22px;letter-spacing:10px;color:rgba(255,176,30,.2)}
+  #resStars i{font-style:normal} #resStars i.on{color:var(--amber);
+    text-shadow:0 0 14px rgba(255,176,30,.6)}
+  #resStats{margin-top:10px;font-size:10.5px}
+  #resStats div{display:flex;justify-content:space-between;padding:5px 0;
+    border-bottom:1px solid rgba(255,176,30,.13)}
+  #resStats b{font-weight:400;color:rgba(255,176,30,.55);letter-spacing:1.4px}
+  #resStats span{color:var(--amber);letter-spacing:1px}
+
+  /* ---- Boot card -------------------------------------------------------
+     Inline, dependency-free, and painted on the first frame. This game loads
+     no images at all, so the card is covering sector generation rather than a
+     download — but it is the same principle: what covers the wait may not
+     itself need to wait. */
+  #boot{position:fixed;inset:0;z-index:90;display:grid;place-items:center;
+    background:radial-gradient(120% 80% at 50% 40%,#0c1219,#04060a 72%);
+    transition:opacity .45s ease}
+  #boot.out{opacity:0;pointer-events:none}
+  #boot .w{text-align:center;padding:0 24px;width:min(420px,88vw)}
+  #boot h1{margin:0;font-size:clamp(20px,5.6vw,32px);letter-spacing:6px;
+    text-shadow:0 0 20px rgba(255,176,30,.5)}
+  #boot .s{margin:10px 0 24px;font-size:9px;letter-spacing:4px;color:rgba(255,176,30,.45)}
+  #boot .bar{height:3px;background:rgba(255,176,30,.14);border:1px solid rgba(255,176,30,.3)}
+  #boot .bar>i{display:block;height:100%;width:2%;background:var(--amber);
+    transition:width .18s ease;box-shadow:0 0 10px rgba(255,176,30,.7)}
+  #bootSay{margin-top:10px;font-size:9px;letter-spacing:2px;color:rgba(255,176,30,.5);
+    white-space:pre}
+
+  #top,#wepBar,#topRight{opacity:0;transition:opacity .25s}
+  body.playing #top,body.playing #wepBar,body.playing #topRight{opacity:1}
+  body:not(.playing) #wepBar,body:not(.playing) #topRight{pointer-events:none}
+
+  @media (max-height:430px){
+    #term{display:none}
+    #wepBar{bottom:calc(env(safe-area-inset-bottom) + 6px)}
+    .card{padding:16px 16px 14px}
+    .card p{font-size:10px;line-height:1.6}
+  }
+</style>
+
+<canvas id="world"></canvas>
+<canvas id="hud"></canvas>
+<div id="surface"></div>
+
+<!-- Telemetry HUD ------------------------------------------------------- -->
+<div class="ui" id="top">
+  <div id="term"></div>
+  <div id="mission">
+    <div id="waveN">PHASE 1/8</div>
+    <div id="waveL">STANDBY</div>
+    <div id="intWrap">
+      <span id="intLbl">ANVIL</span>
+      <div id="intTrack"><i id="intBar"></i></div>
+      <span id="intVal">100</span>
+    </div>
+  </div>
+  <div style="width:96px"></div>
+</div>
+<div id="jamBadge">EW INTERFERENCE</div>
+<div id="flash"></div>
+
+<div id="topRight">
+  <button class="btn" id="btnRecenter">RECENTRE</button>
+  <button class="btn" id="btnPause">II</button>
+</div>
+
+<div id="wepBar">
+  <button id="btnTrigger">FIRE</button>
+  <button class="wep on"><span class="n">25</span><span class="u">ROTARY</span></button>
+  <button class="wep"><span class="n">40</span><span class="u">AUTO</span></button>
+  <button class="wep"><span class="n">105</span><span class="u">HOWITZER</span></button>
+</div>
+
+<!-- Menu ---------------------------------------------------------------- -->
+<div class="overlay" id="menu">
+  <div class="card">
+    <h1>VANGUARD<br>ORBIT<small>TACTICAL STRIKE &nbsp;//&nbsp; SECTOR LIBERATION</small></h1>
+    <p>You are a sub-orbital loitering asset on overwatch. Callsign ANVIL is
+    driving a ground element through a hostile urban sector and will only move
+    while the road ahead is clear. Everything you see is thermal: the streets
+    are warm, the rooftops are cold, and the men in capes are neither.</p>
+    <div class="brief">
+      <div><b>LEFT</b><span>Pan the observation window.</span></div>
+      <div><b>RIGHT</b><span>Aim. Push past the inner ring and the gun fires.</span></div>
+      <div><b>RAIL</b><span>Optical zoom, 1.00x / 1.75x / 3.00x. Double-tap cycles.</span></div>
+      <div><b>HEAT</b><span>The ring around the aim stick. Fill it and the barrel locks.</span></div>
+      <div><b>DESKTOP</b><span>Mouse aims, click fires, WASD pans, 1/2/3 guns, Q zoom, R recentre.</span></div>
+    </div>
+    <button class="go" id="menuPlay">GO ON STATION</button>
+    <div class="row">
+      <button class="btn" id="btnSfx">AUDIO ON</button>
+    </div>
+    <div id="menuBest"></div>
+  </div>
+</div>
+
+<!-- Pause ---------------------------------------------------------------- -->
+<div class="overlay" id="pause">
+  <div class="card">
+    <h1>HOLDING<small>ORBIT MAINTAINED</small></h1>
+    <p>The sector is still there when you come back.</p>
+    <button class="go" id="btnResume">RESUME</button>
+    <div class="row"><button class="btn" id="btnAbort">ABORT MISSION</button></div>
+  </div>
+</div>
+
+<!-- Result --------------------------------------------------------------- -->
+<div class="overlay" id="result">
+  <div class="card">
+    <h1 id="resTitle">ANVIL IS CLEAR</h1>
+    <p id="resSub"></p>
+    <div id="resStars"></div>
+    <div id="resStats"></div>
+    <div class="row">
+      <button class="btn" id="resAgain">NEW SECTOR</button>
+      <button class="btn" id="resMenu">STAND DOWN</button>
+    </div>
+  </div>
+</div>
+
+<!-- Boot ----------------------------------------------------------------- -->
+<div id="boot"><div class="w">
+  <h1>VANGUARD ORBIT</h1>
+  <div class="s">TACTICAL STRIKE</div>
+  <div class="bar"><i id="bootBar"></i></div>
+  <div id="bootSay">INITIALISING</div>
+</div></div>
+
+<script src="sector.js"></script>
+<script src="hostiles.js"></script>
+<script src="thermal.js"></script>
+<script src="game.js"></script>
