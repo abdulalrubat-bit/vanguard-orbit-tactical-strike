@@ -1,12 +1,43 @@
 # Frontline × Vanguard — transition prototype
 
+> **Modern Frontline's source is not in this repository, and must not be.**
+> `modern-frontline` is private; this repository is public. To run the
+> prototype you drop your own copy of `www/index.html` in at
+> `prototype/frontline/index.html` — see *Running it* below. That path is
+> gitignored.
+
 One question, answered by playing it: **does dropping from a turn-based grid
 into a real-time gunship sortie and coming back out feel like one game?**
 
+## Running it
+
+You need three things: this repository, your own copy of Modern Frontline, and
+any local web server. It will **not** work from `file://` — Chrome gives every
+`file://` document its own opaque origin, so the parent cannot script the two
+frames and the bridge does nothing.
+
+```bash
+# 1. this repo
+git clone -b prototype/frontline-bridge \
+  https://github.com/abdulalrubat-bit/vanguard-orbit-tactical-strike
+cd vanguard-orbit-tactical-strike
+
+# 2. your Modern Frontline, which stays private — copied in, never committed
+mkdir -p prototype/frontline
+cp /path/to/modern-frontline/www/index.html prototype/frontline/index.html
+
+# 3. the five missing functions it needs to run at all
+#    add this ONE line at the very end of that file's <body>:
+#    <script src="../frontline-fixes.js"></script>
+
+# 4. serve
+python3 -m http.server 8877
 ```
-python3 -m http.server 8877        # from the repo root
-open http://127.0.0.1:8877/prototype/
-```
+
+Then open **http://localhost:8877/prototype/**
+
+On a phone on the same wi-fi, use your machine's LAN address instead of
+`localhost` — `http://192.168.x.x:8877/prototype/`.
 
 Pick a faction, then **CALL VANGUARD** in Frontline's own button bar, tap a
 tile with enemies on it, and fly. What you kill up there is dead down here.
