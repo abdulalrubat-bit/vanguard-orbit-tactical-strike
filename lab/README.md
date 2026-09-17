@@ -18,7 +18,7 @@ Four complete interface systems over the same frame of the same sector.
 > job. See "a bit of mil-spec" in the main README.
 
 ```
-python3 -m http.server 8899      # from vanguard/
+python3 -m http.server 8899      # from the repo root
 open http://127.0.0.1:8899/lab/
 ```
 

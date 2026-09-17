@@ -1,0 +1,4 @@
+# tools/sim.mjs needs playwright; the dependency is declared in package.json
+# and installed on demand. It is not part of the game and never ships.
+node_modules/
+package-lock.json
