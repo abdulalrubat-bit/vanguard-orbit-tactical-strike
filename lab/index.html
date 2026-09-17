@@ -1,0 +1,200 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vanguard Orbit — UI lab</title>
+<meta name="robots" content="noindex">
+<style>
+  /* The lab's own chrome is deliberately neutral grey. Anything with a colour
+     of its own sitting next to four candidate interfaces would put a thumb on
+     the scale, and the amber one would win every time by matching its frame. */
+  :root{
+    --bg:#15171b; --panel:#1d2026; --line:#2e333c; --ink:#dfe3e8; --dim:#8b939e;
+    --mono:ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{display:flex;flex-direction:column;overflow:hidden}
+
+  header{flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel);
+    padding:10px 14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  h1{margin:0;font:700 13px/1 var(--mono);letter-spacing:2px;white-space:nowrap}
+  h1 b{color:var(--dim);font-weight:400}
+  .grp{display:flex;gap:4px;align-items:center}
+  .grp>label{font:600 9px var(--mono);letter-spacing:1.5px;color:var(--dim);
+    margin-right:4px}
+  button{font:600 11px var(--sans);border:1px solid var(--line);background:#23262d;
+    color:var(--ink);padding:7px 12px;border-radius:5px;cursor:pointer;
+    letter-spacing:.4px}
+  button:hover{background:#2b2f37}
+  button.on{background:#e7eaee;color:#15171b;border-color:#e7eaee}
+  /* Each tab carries a dot in its own candidate's accent — the one place the
+     lab shows a theme colour, because otherwise the tabs are four grey words. */
+  .tab i{display:inline-block;width:8px;height:8px;border-radius:50%;
+    margin-right:7px;vertical-align:-1px}
+
+  main{flex:1;display:flex;min-height:0}
+  #stage{flex:1;min-width:0;display:grid;place-items:center;padding:18px;
+    background:repeating-conic-gradient(#191c21 0 25%,#1c1f25 0 50%) 0 0/22px 22px}
+  #frameWrap{transform-origin:center center}
+  #frame{position:relative;background:#000;overflow:hidden;
+    box-shadow:0 20px 60px #0009,0 0 0 1px #000;border-radius:3px}
+  #frame canvas{position:absolute;inset:0;display:block}
+  #menuLayer{position:absolute;inset:0;display:none;overflow:auto;
+    -webkit-overflow-scrolling:touch}
+  #menuLayer.show{display:block}
+
+  aside{flex:0 0 330px;border-left:1px solid var(--line);background:var(--panel);
+    overflow-y:auto;padding:16px 16px 28px}
+  aside h2{margin:0 0 3px;font:700 15px var(--sans);letter-spacing:.3px}
+  aside .tag{margin:0 0 16px;font:400 12px/1.6 var(--sans);color:var(--dim)}
+  .note{margin-bottom:13px;padding-bottom:13px;border-bottom:1px solid var(--line)}
+  .note:last-child{border-bottom:0}
+  .note b{display:block;font:700 9px var(--mono);letter-spacing:2px;
+    color:var(--dim);margin-bottom:5px;text-transform:uppercase}
+  .note span{font:400 12px/1.65 var(--sans);color:var(--ink)}
+  .hint{margin-top:16px;padding:11px 12px;border:1px dashed var(--line);
+    border-radius:6px;font:400 11px/1.6 var(--sans);color:var(--dim)}
+  .hint kbd{font:600 10px var(--mono);background:#23262d;border:1px solid var(--line);
+    border-radius:3px;padding:1px 5px}
+  @media (max-width:900px){
+    main{flex-direction:column}
+    aside{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);max-height:44vh}
+  }
+
+  /* ======================================================================
+     The four menu treatments. Same markup, four stylesheets — which is the
+     honest test of whether a design system survives contact with a list, a
+     progress bar and three buttons, rather than only with a reticle.
+     ====================================================================== */
+  .mock{min-height:100%;padding:22px;font-family:var(--mono)}
+  .mock .title{margin:0 0 2px}
+  .mock .sub{margin:0 0 16px}
+  .mock .rankRow{display:flex;justify-content:space-between;align-items:baseline}
+  .mock .track{position:relative;height:6px;margin:8px 0 6px}
+  .mock .track>i{position:absolute;inset:0 auto 0 0;display:block;width:42%}
+  .mock .to{margin-bottom:16px}
+  .mock .rung{display:grid;grid-template-columns:1fr auto;gap:2px 10px;
+    padding:9px 11px;margin-bottom:7px;align-items:baseline}
+  .mock .rung .rb{grid-column:1/-1}
+  .mock .btns{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .mock .btns button{flex:1;min-width:110px;cursor:default}
+
+  /* ---- VANGUARD ---- */
+  [data-theme=vanguard] .mock{background:linear-gradient(rgba(12,18,24,.97),rgba(6,9,13,.97));
+    color:#ffb01e}
+  [data-theme=vanguard] .title{font:400 22px/1.05 var(--mono);letter-spacing:5px;
+    text-shadow:0 0 18px rgba(255,176,30,.45)}
+  [data-theme=vanguard] .sub{font:400 9px var(--mono);letter-spacing:4px;color:rgba(255,176,30,.55)}
+  [data-theme=vanguard] .rankRow{font:400 12px var(--mono);letter-spacing:3px}
+  [data-theme=vanguard] .track{border:1px solid rgba(255,176,30,.35);background:rgba(255,176,30,.07)}
+  [data-theme=vanguard] .track>i{background:#ffb01e;box-shadow:0 0 8px rgba(255,176,30,.5)}
+  [data-theme=vanguard] .to{font:400 9px var(--mono);letter-spacing:2px;color:rgba(255,176,30,.5)}
+  [data-theme=vanguard] .rung{border:1px solid rgba(255,176,30,.2);background:rgba(255,176,30,.03)}
+  [data-theme=vanguard] .rung.can{border-color:#ffb01e;background:rgba(255,176,30,.11)}
+  [data-theme=vanguard] .rung.owned{opacity:.7}
+  [data-theme=vanguard] .rung.lock{opacity:.4;border-style:dashed}
+  [data-theme=vanguard] .rn{font:400 11px var(--mono);letter-spacing:1.4px}
+  [data-theme=vanguard] .rc{font:400 10px var(--mono);letter-spacing:1.4px;text-align:right}
+  [data-theme=vanguard] .rb{font:400 9.5px/1.6 var(--mono);color:rgba(255,176,30,.45)}
+  [data-theme=vanguard] .btns button{background:rgba(255,176,30,.1);border:1px solid #b4740c;
+    color:#ffb01e;border-radius:0;font:400 11px var(--mono);letter-spacing:2px;padding:12px}
+
+  /* ---- NVG ---- */
+  [data-theme=nvg] .mock{background:#020a04;color:#7dff9a}
+  [data-theme=nvg] .title{font:700 24px/1.05 var(--mono);letter-spacing:3px;
+    text-shadow:0 0 22px rgba(125,255,154,.6)}
+  [data-theme=nvg] .sub{font:700 9px var(--mono);letter-spacing:3px;color:rgba(125,255,154,.5)}
+  [data-theme=nvg] .rankRow{font:700 13px var(--mono);letter-spacing:2px}
+  [data-theme=nvg] .track{border:2px solid rgba(125,255,154,.5);background:#031a09;height:10px}
+  [data-theme=nvg] .track>i{background:#7dff9a;box-shadow:0 0 14px rgba(125,255,154,.8)}
+  [data-theme=nvg] .to{font:700 9px var(--mono);letter-spacing:2px;color:rgba(125,255,154,.5)}
+  [data-theme=nvg] .rung{border:2px solid rgba(125,255,154,.3);background:#04170a}
+  [data-theme=nvg] .rung.can{border-color:#7dff9a;box-shadow:0 0 16px rgba(125,255,154,.18) inset}
+  [data-theme=nvg] .rung.owned{opacity:.6}
+  [data-theme=nvg] .rung.lock{opacity:.32;border-style:dotted}
+  [data-theme=nvg] .rn{font:700 11px var(--mono);letter-spacing:1.6px}
+  [data-theme=nvg] .rc{font:700 10px var(--mono);text-align:right}
+  [data-theme=nvg] .rb{font:700 9px/1.6 var(--mono);color:rgba(125,255,154,.42)}
+  [data-theme=nvg] .btns button{background:#04170a;border:2px solid #7dff9a;color:#7dff9a;
+    border-radius:0;font:700 11px var(--mono);letter-spacing:2px;padding:13px}
+
+  /* ---- MIL-SPEC ---- */
+  [data-theme=milspec] .mock{background:#0b0f13;color:#eef6fb}
+  [data-theme=milspec] .title{font:700 17px/1.05 var(--mono);letter-spacing:2px}
+  [data-theme=milspec] .sub{font:700 8.5px var(--mono);letter-spacing:2px;color:#8fd8ff}
+  [data-theme=milspec] .rankRow{font:700 10px var(--mono);letter-spacing:1.5px;
+    border-top:1px solid rgba(143,216,255,.25);border-bottom:1px solid rgba(143,216,255,.25);
+    padding:6px 0;margin-top:12px}
+  [data-theme=milspec] .track{border:1px solid rgba(143,216,255,.4);background:rgba(143,216,255,.1);height:5px}
+  [data-theme=milspec] .track>i{background:#8fd8ff}
+  [data-theme=milspec] .to{font:700 8px var(--mono);letter-spacing:1.5px;color:rgba(143,216,255,.6)}
+  [data-theme=milspec] .rung{border:0;border-bottom:1px solid rgba(143,216,255,.16);
+    background:none;padding:7px 0;margin:0}
+  [data-theme=milspec] .rung.can .rc{color:#8fd8ff}
+  [data-theme=milspec] .rung.owned .rc{color:#9dff9d}
+  [data-theme=milspec] .rung.lock{opacity:.4}
+  [data-theme=milspec] .rn{font:700 10px var(--mono);letter-spacing:1.2px}
+  [data-theme=milspec] .rc{font:700 9px var(--mono);text-align:right;color:rgba(143,216,255,.7)}
+  [data-theme=milspec] .rb{font:400 8.5px/1.55 var(--mono);color:rgba(238,246,251,.42)}
+  [data-theme=milspec] .btns button{background:rgba(143,216,255,.1);border:1px solid rgba(143,216,255,.5);
+    color:#eef6fb;border-radius:2px;font:700 9.5px var(--mono);letter-spacing:1.6px;padding:10px}
+
+  /* ---- TACTICAL SLATE ---- */
+  [data-theme=slate] .mock{background:#0e1118;color:#fff;font-family:var(--sans)}
+  [data-theme=slate] .title{font:800 26px/1.05 var(--sans);letter-spacing:-.4px}
+  [data-theme=slate] .sub{font:600 11px var(--sans);color:rgba(255,255,255,.45)}
+  [data-theme=slate] .rankRow{font:700 14px var(--sans)}
+  [data-theme=slate] .rankRow span:last-child{color:#ff9d3c}
+  [data-theme=slate] .track{background:rgba(255,255,255,.1);border-radius:4px;height:8px}
+  [data-theme=slate] .track>i{background:#ff9d3c;border-radius:4px}
+  [data-theme=slate] .to{font:600 10px var(--sans);color:rgba(255,255,255,.4)}
+  [data-theme=slate] .rung{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;padding:12px 14px}
+  [data-theme=slate] .rung.can{border-color:#ff9d3c;background:rgba(255,157,60,.12)}
+  [data-theme=slate] .rung.owned{opacity:.55}
+  [data-theme=slate] .rung.owned .rc{color:#68e39b}
+  [data-theme=slate] .rung.lock{opacity:.4}
+  [data-theme=slate] .rn{font:700 12px var(--sans)}
+  [data-theme=slate] .rc{font:700 11px var(--sans);text-align:right;color:#ff9d3c}
+  [data-theme=slate] .rb{font:400 10.5px/1.55 var(--sans);color:rgba(255,255,255,.45)}
+  [data-theme=slate] .btns button{background:#ff9d3c;border:0;color:#171008;border-radius:10px;
+    font:700 12px var(--sans);padding:14px}
+  [data-theme=slate] .btns button:nth-child(n+2){background:rgba(255,255,255,.08);color:#fff}
+</style>
+
+<header>
+  <h1>VANGUARD ORBIT <b>// UI LAB</b></h1>
+  <div class="grp" id="tabs"><label>SYSTEM</label></div>
+  <div class="grp" id="sizes"><label>DEVICE</label></div>
+  <div class="grp" id="screens"><label>SCREEN</label></div>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="frameWrap"><div id="frame">
+      <canvas id="world"></canvas>
+      <canvas id="hud"></canvas>
+      <div id="menuLayer"></div>
+    </div></div>
+  </div>
+  <aside>
+    <h2 id="nName"></h2>
+    <p class="tag" id="nTag"></p>
+    <div id="notes"></div>
+    <div class="hint">
+      <kbd>1</kbd>–<kbd>4</kbd> switch system · <kbd>Space</kbd> flip screen ·
+      <kbd>D</kbd> flip device.<br><br>
+      Flipping fast between two systems on the same frame is the honest
+      comparison — a HUD you stare at long enough always starts to look fine.
+    </div>
+  </aside>
+</main>
+
+<script src="../sector.js"></script>
+<script src="../hostiles.js"></script>
+<script src="../thermal.js"></script>
+<script src="scene.js"></script>
+<script src="themes.js"></script>
+<script src="lab.js"></script>

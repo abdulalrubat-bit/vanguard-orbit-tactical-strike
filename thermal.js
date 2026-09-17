@@ -119,7 +119,15 @@ const Thermal = (() => {
     g.setTransform(1, 0, 0, 1, 0, 0);
 
     if (quality > 0) {
-      const tile = grain[(t * 24 | 0) % grainN];
+      // Math.abs, and a fallback. A plain `% grainN` returns a NEGATIVE index
+      // for a negative t, and t can genuinely arrive negative: a requestAnimationFrame
+      // timestamp is the start of the frame batch, so on a device slow enough
+      // that startup ran long it predates the clock this was zeroed against.
+      // The result was `grain[-4]`, an undefined pattern source, and a thrown
+      // exception that killed the whole render loop on exactly the low-end
+      // phones the sensor grade is being kept cheap for.
+      const tile = grain[Math.abs(t * 24 | 0) % grainN] || grain[0];
+      if (!tile) { g.restore(); return; }
       g.save();
       g.globalAlpha = 0.5 + (jam * 0.4);
       const ox = -Math.random() * grainSize, oy = -Math.random() * grainSize;
