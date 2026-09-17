@@ -74,14 +74,17 @@
   #ccBody{min-width:150px}
   #ccTop{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
   #ccTop b{font:700 13px var(--sans);letter-spacing:.2px}
-  #intVal{font:700 13px var(--sans);color:var(--good)}
+  /* Every NUMBER is monospace, every LABEL is sans. That one split is most of
+     what the mil-spec graft is: it reads as instrumentation without costing a
+     pixel of layout, and it stops digits jittering as they tick. */
+  #intVal{font:700 13px var(--mono);color:var(--good);font-variant-numeric:tabular-nums}
   #intTrack{margin-top:5px;height:8px;border-radius:4px;background:rgba(255,255,255,.10);
     overflow:hidden}
   /* scaleX rather than width: the integrity bar moves on almost every frame of
      a bad wave, and a width animation relayouts the card each time. */
   #intBar{display:block;height:100%;width:100%;border-radius:4px;background:var(--good);
     transform-origin:left center;transform:scaleX(1);transition:transform .16s linear}
-  #ccMeta{margin-top:6px;font:600 9.5px var(--sans);color:var(--dim);letter-spacing:.3px}
+  #ccMeta{margin-top:6px;font:600 9px var(--mono);color:var(--dim);letter-spacing:.2px}
   #convoyCard.crit #intBar{background:var(--bad)}
   #convoyCard.crit #intVal{color:var(--bad)}
   #convoyCard.crit #ccIcon{background:rgba(255,90,90,.16);border-color:var(--bad);color:var(--bad)}
@@ -107,13 +110,13 @@
   #zoomWrap{position:relative;pointer-events:auto}
   #zoomBtn{min-width:56px;height:40px;padding:0 12px;border-radius:11px;
     background:var(--panel);border:1px solid var(--line);color:var(--ink);
-    font:700 12px var(--sans);backdrop-filter:blur(6px)}
+    font:700 12px var(--mono);backdrop-filter:blur(6px)}
   #zoomBtn:active,#zoomWrap.open #zoomBtn{border-color:var(--accent);color:var(--accent)}
   #zoomList{position:absolute;top:46px;right:0;display:none;flex-direction:column;gap:6px}
   #zoomWrap.open #zoomList{display:flex}
   #zoomList button{min-width:56px;padding:9px 12px;border-radius:10px;
     background:var(--panel);border:1px solid var(--line);color:var(--dim2);
-    font:700 11px var(--sans);backdrop-filter:blur(6px)}
+    font:700 11px var(--mono);backdrop-filter:blur(6px)}
   #zoomList button.on{border-color:var(--accent);color:var(--accent);
     background:rgba(255,157,60,.18)}
 
@@ -123,6 +126,8 @@
     display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
   #heatWrap{display:flex;align-items:center;gap:8px;width:100%}
   #heatWrap span{font:700 9px var(--sans);color:var(--dim);letter-spacing:1.4px}
+  #heatPct{font:700 9px var(--mono)!important;letter-spacing:0!important;
+    min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
   #heatTrack{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.10);
     overflow:hidden}
   #heatFill{display:block;height:100%;width:100%;border-radius:5px;background:var(--accent);
@@ -135,7 +140,15 @@
   .wep{position:relative;width:clamp(66px,17vw,84px);padding:9px 0 8px;border-radius:10px;
     background:var(--panel);border:1px solid var(--line);text-align:center}
   .wep .n{display:block;font:800 19px var(--sans);line-height:1}
+  .wep .n{font-variant-numeric:tabular-nums}
   .wep .u{display:block;margin-top:3px;font:600 9px var(--sans);color:var(--dim)}
+  /* Per-station heat. The big bar only ever shows the gun in your hand; this
+     is how you see the 105 is cold without selecting it to find out. */
+  .wep .pip{position:absolute;left:8px;right:8px;bottom:5px;height:2px;border-radius:1px;
+    background:rgba(255,255,255,.12);overflow:hidden}
+  .wep .pip>i{display:block;height:100%;width:100%;background:var(--accent);
+    transform-origin:left center;transform:scaleX(0)}
+  .wep.locked .pip{display:none}
   .wep.on{border-color:var(--accent);background:rgba(255,157,60,.20)}
   .wep.on .n{color:var(--accent)}
   .wep:active{background:rgba(255,157,60,.3)}
@@ -211,13 +224,15 @@
     padding:13px 14px 12px;background:var(--panel-hi)}
   .hubTop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .hubTop span:first-child{font:700 14px var(--sans)}
-  .hubTop span:last-child{font:700 13px var(--sans);color:var(--accent)}
+  .hubTop span:last-child{font:700 13px var(--mono);color:var(--accent);
+    font-variant-numeric:tabular-nums}
   .hubTop .up{color:var(--good)}
   .rankTrack{margin-top:9px;height:8px;border-radius:4px;background:rgba(255,255,255,.10);
     overflow:hidden}
   .rankTrack>i{display:block;height:100%;border-radius:4px;background:var(--accent);
     transition:width .5s ease}
-  .hubNext,.hubMeta{margin-top:7px;font:600 10px var(--sans);color:var(--dim)}
+  .hubNext,.hubMeta{margin-top:7px;font:600 9.5px var(--mono);color:var(--dim);
+    font-variant-numeric:tabular-nums}
 
   #resTitle{margin:0;font:800 clamp(22px,5.6vw,30px) var(--sans);letter-spacing:-.4px}
   #resTitle.ok{color:var(--good)} #resTitle.bad{color:var(--bad)}
@@ -228,7 +243,7 @@
   #resStats div{display:flex;justify-content:space-between;padding:7px 0;
     border-bottom:1px solid var(--line)}
   #resStats b{font:600 11px var(--sans);color:var(--dim)}
-  #resStats span{font:700 12px var(--sans)}
+  #resStats span{font:700 12px var(--mono);font-variant-numeric:tabular-nums}
   #resStats .tot{border-bottom:0;border-top:1px solid rgba(255,157,60,.4);margin-top:5px;
     padding-top:10px}
   #resStats .tot b{color:var(--accent)}
@@ -239,7 +254,7 @@
   .reqHead{position:sticky;top:-24px;z-index:2;display:flex;justify-content:space-between;
     align-items:flex-start;gap:12px;padding:24px 0 12px;margin-top:-24px;
     background:linear-gradient(#141821 80%,rgba(20,24,33,0))}
-  #reqBal{font:700 13px var(--sans);color:var(--accent);white-space:nowrap;
+  #reqBal{font:700 13px var(--mono);color:var(--accent);white-space:nowrap;
     border:1px solid var(--accent);border-radius:10px;padding:8px 12px;
     background:rgba(255,157,60,.12)}
   #reqList{margin-top:6px}
@@ -249,7 +264,7 @@
     grid-template-columns:1fr auto;gap:3px 12px;padding:12px 14px;margin-bottom:8px;
     border:1px solid var(--line);border-radius:12px;background:var(--panel-hi)}
   .rung .rn{font:700 12px var(--sans)}
-  .rung .rc{font:700 11px var(--sans);color:var(--dim);text-align:right;white-space:nowrap}
+  .rung .rc{font:700 11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
   .rung .rb{grid-column:1/-1;font:400 10.5px/1.6 var(--sans);color:var(--dim)}
   /* Affordable is the only state that gets to look like a button. */
   .rung.can{border-color:var(--accent);background:rgba(255,157,60,.12)}
@@ -319,11 +334,12 @@
 <div id="flash"></div>
 
 <div id="bottomBar">
-  <div id="heatWrap"><span>HEAT</span><div id="heatTrack"><i id="heatFill"></i></div></div>
+  <div id="heatWrap"><span>HEAT</span><div id="heatTrack"><i id="heatFill"></i></div>
+    <span id="heatPct">00%</span></div>
   <div id="wepBar">
-    <button class="wep on"><span class="n">25</span><span class="u">mm</span></button>
-    <button class="wep"><span class="n">40</span><span class="u">mm</span></button>
-    <button class="wep"><span class="n">105</span><span class="u">mm</span></button>
+    <button class="wep on"><span class="n">25</span><span class="u">mm</span><i class="pip"><i></i></i></button>
+    <button class="wep"><span class="n">40</span><span class="u">mm</span><i class="pip"><i></i></i></button>
+    <button class="wep"><span class="n">105</span><span class="u">mm</span><i class="pip"><i></i></i></button>
   </div>
 </div>
 <button id="btnTrigger">FIRE</button>

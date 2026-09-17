@@ -53,6 +53,45 @@ canvas (threat chips, convoy marks, the reticle, inbound shells, the sticks);
 anything at a fixed place is DOM, because DOM gives crisp text, real touch
 targets and a layout engine that already knows about safe-area insets.
 
+### A bit of mil-spec
+
+Slate won on legibility; the pod layout lost on cost. So the graft is its
+*instrumentation* and none of its furniture:
+
+- **Every number is monospace, every label is sans.** One split, no layout
+  cost, and it stops digits jittering as they tick. It runs through the hub
+  and the requisition shelf too, or the graft would stop at the edge of the
+  sortie.
+- **Three-letter NATO-ish class codes** — INF, VEH, HVY, EWS — instead of
+  FAST and HEAVY. Marginally less readable, and worth it twice: the register
+  is right, and a fixed three characters means every chip is the same width,
+  which the label allocator turns straight into fewer dropped labels.
+- **Track designators and ground range on the chip**, but only past 1.70x.
+  Wide open you get the class and nothing else, because nine chips at 1.00x is
+  already most of what an eye can take. More glass, more information — which is
+  how the real thing behaves.
+- **A precision cross and a mil ladder** inside the soft ring. The ring says
+  where you are pointing; the ticks say how far off you are, which at 3.00x
+  against a Ghost is the difference between a burst and a wasted barrel.
+- **Corner telemetry**, four dim mono lines, no panel. Two of them are real:
+  magnification, and the ground range from ANVIL to wherever the crosshair is
+  actually looking — how far from the convoy you have wandered, which you
+  cannot read off the picture.
+- **A heat pip under every station**, because the big bar only ever shows the
+  gun in your hand and you should be able to see the 105 is cold without
+  selecting it to find out.
+
+What stayed out: the two opaque data strips. They were mil-spec's whole cost —
+about a fifth of a 360-tall phone — and the reason it lost.
+
+The telemetry block is drawn on the **canvas**, first, and is deliberately not
+in the reserved set. As a DOM element it sat above the HUD layer, so it had to
+reserve its rectangle to stop dim text landing on an opaque chip — and that
+dead zone under the zoom pill immediately started dropping labels that used to
+flip below. On the canvas the priority falls out of the draw order instead: the
+chip paints after, over the top, because a contact is worth more than a
+timecode.
+
 ## The collision fix
 
 The amber build had a bug the lab exposed on its first run: a hostile high on

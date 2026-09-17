@@ -468,7 +468,7 @@ function startMission(seed, plan) {
   // Always open on the 25mm: it is the only station that is always fitted,
   // and a sortie that starts on a gun you sold back is a sortie that starts
   // with a dead trigger.
-  S.weapon = 0; S.t = 0;
+  S.weapon = 0; S.t = 0; S.trk = 40;
 
   const p = atDist(S.sector.line, 0);
   S.cam.x = p.x + 150; S.cam.y = p.y; S.cam.zi = 0; S.cam.z = S.cam.zt = 1;
@@ -540,8 +540,12 @@ function spawn(kind) {
   // Health creeps with rank rather than leaping. The interesting escalation is
   // which hostiles are allowed to turn up, not how many rounds each one eats.
   const hp = Math.round(k.hp * S.plan.hp);
+  // A track number, assigned once and kept for life. It is pure instrument
+  // flavour — nothing in the game reads it — but a contact you can name is a
+  // contact you can hold in your head across a wave.
+  S.trk = (S.trk || 40) + 1;
   S.hostiles.push({
-    kind, x: p.x, y: p.y, hp, max: hp, face: 0,
+    kind, trk: S.trk, x: p.x, y: p.y, hp, max: hp, face: 0,
     flare: 0, cool: Math.random() * k.cadence, vx: 0, vy: 0, tag: 0, hitT: 0
   });
 }
@@ -1082,12 +1086,18 @@ function drawConvoy(g) {
  */
 
 const SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+const MONOF = 'ui-monospace,Menlo,Consolas,"DejaVu Sans Mono",monospace';
 
+/* NATO-ish three-letter codes rather than plain language, borrowed from the
+ * pod layout in lab/. Slightly less readable than FAST and HEAVY were, and
+ * worth it twice over: they carry the right register, and a fixed three
+ * characters means every chip on the screen is the same width, which the
+ * label allocator below turns directly into fewer dropped labels. */
 const THREAT = {
-  ghost:     { label: 'INF',   col: '#ff9d3c' },
-  technical: { label: 'FAST',  col: '#ffd166' },
-  phalanx:   { label: 'HEAVY', col: '#ff5a5a' },
-  jammer:    { label: 'EW',    col: '#c08cff' }
+  ghost:     { label: 'INF', col: '#ff9d3c' },
+  technical: { label: 'VEH', col: '#ffd166' },
+  phalanx:   { label: 'HVY', col: '#ff5a5a' },
+  jammer:    { label: 'EWS', col: '#c08cff' }
 };
 const PANEL = 'rgba(14,17,24,.90)';
 
@@ -1192,6 +1202,7 @@ function drawHUD() {
   // hardware, so it does not pretend its own panels are being received over a
   // datalink — the jam badge says what is happening instead.
   TAKEN.length = 0;
+  drawTelemetry(g);
 
   const jitter = S.jammed ? (Math.random() - 0.5) * 5 * S.jam : 0;
   g.save();
@@ -1208,6 +1219,44 @@ function drawHUD() {
   drawSticks(g);
 
   UI.tick();
+}
+
+/* Corner telemetry — the one piece of pod furniture that made it across from
+ * MIL-SPEC in lab/, and the only one. No panel behind it: a translucent line
+ * of mono costs the sensor image almost nothing, where the pod layout's two
+ * opaque strips cost a fifth of a phone screen and lost it the job.
+ *
+ * Drawn on the CANVAS, first, and deliberately NOT added to the reserved set.
+ * As a DOM element it sat above the HUD layer, so it had to reserve its
+ * rectangle to avoid dim text landing on top of an opaque chip — and that dead
+ * zone under the zoom pill immediately started dropping labels that used to
+ * flip. Here the priority falls out of the draw order instead: a threat chip
+ * is painted after, over the top, and a contact is worth more than a timecode.
+ *
+ * Two of the three lines are real. RNG is the ground distance from ANVIL to
+ * wherever the crosshair is looking, which is how far from the convoy you have
+ * wandered — a thing you genuinely cannot read off the picture. */
+function drawTelemetry(g) {
+  const rx = W - 14, top = 62;
+  const conv = atDist(S.sector.line, S.convoy.d);
+  const rng = Math.hypot(toWorldX(S.cross.x) - conv.x, toWorldY(S.cross.y) - conv.y);
+  const m = Math.floor(S.elapsed / 60), sec = Math.floor(S.elapsed % 60);
+  const lines = [
+    'FLIR-4B  WHOT',
+    'MAG ' + ZOOMS[S.cam.zi].toFixed(2) + 'X',
+    'RNG ' + String(Math.round(rng)).padStart(4, '0') + 'M',
+    'T+' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+  ];
+  g.save();
+  g.font = '600 8.5px ' + MONOF;
+  g.textAlign = 'right';
+  g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 3; g.shadowOffsetY = 1;
+  for (let i = 0; i < lines.length; i++) {
+    g.fillStyle = i === 0 ? 'rgba(255,255,255,.34)' : 'rgba(255,255,255,.30)';
+    g.fillText(lines[i], rx, top + i * 14);
+  }
+  g.restore();
+  g.textAlign = 'left';
 }
 
 /* Green triangles, not diamonds: a filled shape survives being nine pixels
@@ -1255,7 +1304,13 @@ function drawFriendlyMarks(g) {
  * of a phone screen; a colour-coded pill says what it is in a third of the ink
  * and reads at a glance, at the honest cost of saying it less precisely. */
 function drawThreatChips(g) {
-  g.font = '700 9px ' + SANS;
+  // Detail scales with magnification. Wide open you get the class and nothing
+  // else, because nine chips at 1.00x is already most of what the eye can take;
+  // zoomed in you get the track number and the ground range from ANVIL, which
+  // is the number that actually tells you how long you have. More glass, more
+  // information, is how the real thing behaves too.
+  const detail = S.cam.z >= 1.7;
+  const conv = atDist(S.sector.line, S.convoy.d);
   for (const e of S.hostiles) {
     if (e.tag < 0.05) continue;
     const k = Hostiles.KINDS[e.kind], th = THREAT[e.kind];
@@ -1273,12 +1328,23 @@ function drawThreatChips(g) {
       g.beginPath(); g.arc(x, y, r + 3, 0, 7); g.stroke();
     }
 
-    const tw = g.measureText(th.label).width + 16;
-    const at = claimLabel(x, y, r, tw, 16);
+    const head = detail ? ('T' + e.trk + ' ' + th.label) : th.label;
+    g.font = '700 9px ' + MONOF;
+    const tw = Math.max(38, g.measureText(head).width + 16);
+    const hgt = detail ? 27 : 16;
+    const at = claimLabel(x, y, r, tw, hgt);
     if (at) {
-      rrect(g, at.x, at.y, tw, 16, 8, PANEL, th.col);
-      g.fillStyle = th.col; g.textAlign = 'center';
-      g.fillText(th.label, at.x + tw / 2, at.y + 11.5); g.textAlign = 'left';
+      rrect(g, at.x, at.y, tw, hgt, 8, PANEL, th.col);
+      g.textAlign = 'center';
+      g.fillStyle = th.col;
+      g.fillText(head, at.x + tw / 2, at.y + 11.5);
+      if (detail) {
+        const rng = Math.round(Math.hypot(e.x - conv.x, e.y - conv.y));
+        g.font = '600 7.5px ' + MONOF;
+        g.fillStyle = 'rgba(255,255,255,.55)';
+        g.fillText(String(rng).padStart(4, '0') + 'M', at.x + tw / 2, at.y + 22);
+      }
+      g.textAlign = 'left';
     }
     g.restore();
   }
@@ -1335,6 +1401,27 @@ function drawReticle(g) {
   g.setLineDash([4, 8]); g.lineDashOffset = S.t * 10;
   g.beginPath(); g.arc(x, y, 29, 0, 7); g.stroke();
   g.setLineDash([]);
+
+  /* Precision cross and a mil ladder inside the ring — the pod reticle's one
+   * genuinely useful idea. The soft ring says where you are pointing; the
+   * ticks say how far off you are, which at 3.00x against a Ghost is the
+   * difference between a burst and a wasted barrel. */
+  g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 1.2;
+  g.beginPath();
+  g.moveTo(x - 17, y); g.lineTo(x - 7, y); g.moveTo(x + 7, y); g.lineTo(x + 17, y);
+  g.moveTo(x, y - 17); g.lineTo(x, y - 7); g.moveTo(x, y + 7); g.lineTo(x, y + 17);
+  g.stroke();
+  if (S.cam.z >= 1.7) {
+    g.strokeStyle = 'rgba(255,255,255,.45)';
+    for (let i = 1; i <= 3; i++) {
+      const d = 34 + i * 9;
+      g.beginPath(); g.moveTo(x - d, y - 3); g.lineTo(x - d, y + 3);
+      g.moveTo(x + d, y - 3); g.lineTo(x + d, y + 3); g.stroke();
+    }
+    g.font = '600 8px ' + MONOF;
+    g.fillStyle = 'rgba(255,255,255,.5)'; g.textAlign = 'left';
+    g.fillText(w.abbr + 'MM', x + 34, y - 24);
+  }
   g.fillStyle = col;
   g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill();
 
@@ -1532,20 +1619,32 @@ const UI = (() => {
   /* Per-frame chrome. Heat and route are transforms on a composited layer, so
    * they are free to write every frame; the hostile count is text, so it is
    * guarded. */
-  let lastHost = -1;
+  let lastHost = -1, pips = null;
   function tick() {
     const h = S.heat[S.weapon];
     $('heatFill').style.transform = 'scaleX(' + h.toFixed(3) + ')';
     const hw = $('heatWrap');
     hw.classList.toggle('hot', h > 0.72 && !S.locked[S.weapon]);
     hw.classList.toggle('locked', S.locked[S.weapon]);
+    setText($('heatPct'), S.locked[S.weapon] ? 'LCK'
+      : String(Math.round(h * 100)).padStart(2, '0') + '%');
+
+    // Every barrel's heat, not just the one in hand.
+    if (!pips) pips = [...document.querySelectorAll('.wep .pip>i')];
+    for (let i = 0; i < pips.length; i++) {
+      pips[i].style.transform = 'scaleX(' + S.heat[i].toFixed(3) + ')';
+      pips[i].style.background = S.locked[i] ? '#ff5a5a' : '#ff9d3c';
+    }
+
     $('routeFill').style.transform =
       'scaleX(' + (S.convoy.d / S.sector.line.total).toFixed(4) + ')';
+
     const n = S.hostiles.length + S.queue.length;
     if (n !== lastHost) {
       lastHost = n;
-      setText($('hostN'), n ? n + ' HOSTILE' : 'SECTOR CLEAR');
+      setText($('hostN'), n ? String(n).padStart(2, '0') + ' TRK' : 'SECTOR CLEAR');
     }
+
   }
 
   /* What the sortie was worth. Integrity dominates on purpose — it is the

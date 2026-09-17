@@ -10,6 +10,12 @@ Four complete interface systems over the same frame of the same sector.
 > that is the hardest thing in the game; and the zoom stack became a DOM
 > control that collapses to one pill, because five permanent detents is two
 > hundred pixels of the edge the aiming thumb lives on.
+>
+> MIL-SPEC then donated its instrumentation to the winner — mono numerals,
+> three-letter class codes, track designators and ground range past 1.70x, a
+> mil ladder in the reticle, and four dim lines of corner telemetry. Its two
+> opaque data strips stayed out, since those were the cost that lost it the
+> job. See "a bit of mil-spec" in the main README.
 
 ```
 python3 -m http.server 8899      # from vanguard/
