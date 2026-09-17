@@ -1,0 +1,128 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Frontline × Vanguard — transition prototype</title>
+<meta name="robots" content="noindex">
+<style>
+  /* The shell. Both games run in same-origin iframes and are never modified;
+     everything here is the parent's own furniture, using Vanguard's slate
+     tokens so the two layers read as one product even though they are two
+     documents. */
+  :root{
+    --bg:#0e1118; --panel:rgba(14,17,24,.90); --line:rgba(255,255,255,.10);
+    --ink:#fff; --dim:rgba(255,255,255,.45); --accent:#ff9d3c; --good:#68e39b;
+    --bad:#ff5a5a;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    --mono:ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace;
+    --e2:0 1px 2px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.42);
+    --e3:0 2px 4px rgba(0,0,0,.55),0 20px 56px rgba(0,0,0,.55);
+    --lip:inset 0 1px 0 rgba(255,255,255,.075);
+    --ease:cubic-bezier(.2,.8,.2,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
+    color:var(--ink);font-family:var(--sans);touch-action:none;
+    -webkit-user-select:none;user-select:none}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0;display:block}
+  /* Frontline underneath, Vanguard above it. The sortie layer is not removed
+     between strikes, only hidden — a cold boot of the sensor and a fresh
+     sector on every call is the one thing guaranteed to make this feel bad. */
+  #fl{z-index:1}
+  #vg{z-index:2;opacity:0;pointer-events:none;transition:opacity .45s var(--ease)}
+  body.sortie #vg{opacity:1;pointer-events:auto}
+  body.sortie #fl{filter:saturate(.2) brightness(.5)}
+  #fl{transition:filter .45s var(--ease)}
+
+  /* ---- Strike HUD: the parent's, floating over the sortie ---------------- */
+  #strikeHud{position:fixed;z-index:4;top:0;left:0;right:0;display:none;
+    justify-content:center;gap:10px;padding:calc(env(safe-area-inset-top) + 8px) 12px 0}
+  body.sortie #strikeHud{display:flex}
+  .sh{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    box-shadow:var(--e2),var(--lip);backdrop-filter:blur(14px) saturate(1.3);
+    padding:8px 14px;font:700 12px var(--mono);letter-spacing:1px;
+    font-variant-numeric:tabular-nums}
+  #shClock{color:var(--accent)} #shClock.low{color:var(--bad)}
+  #shKills{color:var(--good)}
+  #shAbort{pointer-events:auto;cursor:pointer;color:var(--dim);
+    font:700 11px var(--sans);letter-spacing:1px}
+  #shAbort:active{background:var(--bad);color:#160606}
+
+  /* ---- Designate mode --------------------------------------------------- */
+  #designate{position:fixed;z-index:4;inset:auto 0 0 0;display:none;
+    justify-content:center;padding:0 12px calc(env(safe-area-inset-bottom) + 90px)}
+  body.designating #designate{display:flex}
+  #designate div{background:var(--panel);border:1px solid var(--accent);
+    border-radius:12px;box-shadow:var(--e2),var(--lip);padding:10px 16px;
+    font:700 12px var(--sans);letter-spacing:.4px;color:var(--accent);text-align:center}
+  #designate small{display:block;margin-top:4px;font:600 10px var(--mono);
+    color:var(--dim);letter-spacing:.6px}
+
+  /* ---- Transition ------------------------------------------------------- */
+  #wipe{position:fixed;inset:0;z-index:6;background:#05070a;opacity:0;
+    pointer-events:none;display:grid;place-items:center;
+    transition:opacity .3s var(--ease)}
+  #wipe.on{opacity:1;pointer-events:auto}
+  #wipe .t{text-align:center;padding:0 24px}
+  #wipe h2{margin:0;font:800 clamp(18px,4.6vw,26px) var(--sans);letter-spacing:-.3px}
+  #wipe p{margin:8px 0 0;font:600 11px var(--mono);color:var(--dim);letter-spacing:1.4px}
+  #wipe .bar{margin:18px auto 0;width:min(260px,60vw);height:3px;border-radius:2px;
+    background:rgba(255,255,255,.1);overflow:hidden}
+  #wipe .bar>i{display:block;height:100%;width:100%;background:var(--accent);
+    transform-origin:left;transform:scaleX(0);box-shadow:0 0 10px rgba(255,157,60,.6);
+    transition:transform .5s linear}
+
+  /* ---- Debrief ---------------------------------------------------------- */
+  #debrief{position:fixed;inset:0;z-index:7;display:none;align-items:center;
+    justify-content:center;background:rgba(6,8,13,.88);
+    backdrop-filter:blur(16px) saturate(1.1);padding:20px}
+  #debrief.on{display:flex}
+  #debrief .card{width:min(440px,92vw);background:
+      linear-gradient(rgba(255,255,255,.05),rgba(255,255,255,0) 30%),#141821;
+    border:1px solid var(--line);border-radius:20px;padding:24px 22px 20px;
+    box-shadow:var(--e3),var(--lip)}
+  #debrief h2{margin:0;font:800 22px var(--sans);letter-spacing:-.4px}
+  #debrief .sub{margin:6px 0 14px;font:400 12px var(--sans);color:var(--dim)}
+  #debrief .row{display:flex;justify-content:space-between;padding:8px 0;
+    border-bottom:1px solid var(--line);font-size:12px}
+  #debrief .row b{font:600 11px var(--sans);color:var(--dim)}
+  #debrief .row span{font:700 12px var(--mono);font-variant-numeric:tabular-nums}
+  #debrief .kill span{color:var(--bad)}
+  #debrief button{display:block;width:100%;margin-top:18px;padding:15px;
+    border:0;border-radius:12px;background:linear-gradient(#ffb163,var(--accent));
+    color:#171008;font:800 13px var(--sans);letter-spacing:.4px;cursor:pointer}
+
+  #err{position:fixed;z-index:9;left:12px;right:12px;bottom:12px;display:none;
+    padding:12px 14px;border-radius:12px;background:#2a1113;border:1px solid var(--bad);
+    color:#ffd7d7;font:600 11px/1.5 var(--mono)}
+</style>
+
+<iframe id="fl" src="frontline/index.html" title="Modern Frontline"></iframe>
+<iframe id="vg" src="../index.html" title="Vanguard Orbit"></iframe>
+
+<div id="strikeHud">
+  <div class="sh" id="shClock">60.0s</div>
+  <div class="sh" id="shKills">0 / 0</div>
+  <div class="sh" id="shAbort">BREAK OFF</div>
+</div>
+
+<div id="designate"><div>
+  DESIGNATE A TARGET TILE
+  <small id="designateHint">TAP ENEMY GROUND · 40 CREDITS</small>
+</div></div>
+
+<div id="wipe"><div class="t">
+  <h2 id="wipeTitle">VANGUARD ON STATION</h2>
+  <p id="wipeSub">SPOOLING SENSOR</p>
+  <div class="bar"><i id="wipeBar"></i></div>
+</div></div>
+
+<div id="debrief"><div class="card">
+  <h2 id="dbTitle">ON STATION COMPLETE</h2>
+  <p class="sub" id="dbSub"></p>
+  <div id="dbRows"></div>
+  <button id="dbOk">RETURN TO GROUND</button>
+</div></div>
+
+<div id="err"></div>
+
+<script src="bridge.js"></script>
